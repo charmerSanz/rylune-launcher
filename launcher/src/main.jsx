@@ -177,7 +177,7 @@ function App() {
 
   async function run(installOnly = false, version) {
     if (busy) return;
-    if (!selectedAccount) {
+    if (!installOnly && !selectedAccount) {
       setPage('Accounts');
       notify('Select an account first.');
       return;
@@ -204,7 +204,7 @@ function App() {
     try {
       await call('run_game', {
         profile: target,
-        account: selectedAccount,
+        account: selectedAccount || null,
         installOnly,
       });
       setStatus(installOnly ? 'Installation complete' : 'Game session ended');
@@ -342,7 +342,7 @@ function App() {
         </div>
       </header>
 
-      <main className="page-wrap">
+      <main className="page-wrap" key={page}>
         {page === 'Home' && (
           <section className="home-view">
             <div className="hero-panel hero-wallpaper">
@@ -353,7 +353,7 @@ function App() {
                   <h1>{selectedProfile?.version ? `${selectedProfile.version} Fabric` : 'Minecraft'}</h1>
                   <p>Minecraft Java Edition · Your world. Your rules.</p>
                   <div className="hero-actions">
-                    <button className="primary large" disabled={busy} onClick={() => run()}><Play size={18} fill="currentColor" />{busy ? 'Working' : 'Launch game'}</button>
+                    <button className="primary large" disabled={busy} onClick={() => run()}><Play size={18} fill="currentColor" />{busy ? 'Working…' : isInstalled(selectedProfile?.version) ? 'Launch game' : 'Install & play'}</button>
                     <button className="glass-btn configure" title="Configure active profile" onClick={() => edit(selectedProfile)}><SlidersHorizontal size={19}/></button>
                   </div>
                 </div>
@@ -480,7 +480,7 @@ function App() {
               <button className="action-panel" onClick={() => setModal({ kind: 'offline', value: '' })}>
                 <div className="action-icon"><UserRound size={24} /></div>
                 <h3>Offline account</h3>
-                <p>Local play with an existing, legitimately owned installation.</p>
+                <p>Local play for Minecraft owners. Install or repair files without Microsoft sign-in.</p>
                 <span>Add local account <Plus size={14} /></span>
               </button>
             </div>
@@ -549,7 +549,7 @@ function App() {
             </div>
             <div className="info-panel">
               <h3>About Rylune</h3>
-              <p>Version 0.6.0 alpha · Tauri 2 · React · Rust. Modern Fabric edition (1.21.11–26.3).</p>
+              <p>Version 0.7.0 alpha · Tauri 2 · React · Rust. Modern Fabric edition (1.21.11–26.3).</p>
             </div>
           </section>
         )}
@@ -638,7 +638,7 @@ function App() {
             {modal.kind === 'offline' && (
               <>
                 <h2>Add offline account</h2>
-                <p>For local play with installed game files. Not valid for authenticated multiplayer.</p>
+                <p>For local play with a legitimately owned copy. Downloads need internet; authenticated servers require Microsoft sign-in.</p>
                 <label>
                   Username
                   <input autoFocus maxLength={16} value={modal.value} onChange={(e) => setModal({ ...modal, value: e.target.value })} />

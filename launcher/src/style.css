@@ -344,3 +344,48 @@ body{background:#09090a;color:var(--text)}
 @media(max-width:1150px){.topbar{padding:0 18px;gap:12px}.brand{min-width:115px}.brand strong{font-size:19px}.topnav{gap:0}.tab{padding:0 9px}.tab svg{display:none}.topbar-actions{gap:6px}.profile-chip-text{display:none}.page-wrap{padding:18px 22px}.bottom-bar{padding:10px 22px}.hero-content{padding:30px}.hero-copy h1{font-size:56px}}
 @media(max-height:800px){.topbar{height:64px;min-height:64px}.page-wrap{padding-top:16px;padding-bottom:16px}.home-view{gap:16px}.hero-panel,.hero-content{min-height:265px}.hero-content{padding:26px 32px}.featured-card,.library-card{height:120px}.bottom-bar{height:64px;min-height:64px}}
 @media(max-width:950px){.topbar{gap:8px}.brand{min-width:100px;gap:7px}.brand img{width:30px;height:30px}.brand strong{font-size:16px;letter-spacing:1px}.tab{font-size:12px;padding:0 7px}.topbar-actions{gap:3px}.window-controls button{width:25px}.featured-grid{grid-template-columns:repeat(3,minmax(0,1fr)) 64px}.featured-info h3{font-size:17px}.featured-info{left:10px;right:10px}.bottom-center{max-width:300px}}
+
+/* 0.7 Crimson: spacious desktop composition and motion */
+.topbar{height:82px;min-height:82px;padding:0 34px;gap:24px}
+.topnav{gap:5px}.tab{height:44px;min-height:44px;padding:0 15px;position:relative;transition:background .2s,color .2s,border-color .2s}
+.tab.active::after{content:"";position:absolute;bottom:3px;left:25%;width:50%;height:2px;border-radius:2px;background:#ed324b;animation:rylune-tab .24s ease-out}
+.page-wrap{padding:28px 34px 30px;gap:24px;animation:rylune-enter .28s cubic-bezier(.2,.7,.2,1) both}
+.home-view{gap:26px;flex:1;min-height:0}
+.hero-panel{flex:1 0 365px;min-height:365px;border-radius:16px;isolation:isolate}
+.hero-wallpaper{background-image:none}
+.hero-wallpaper::before{content:"";position:absolute;inset:0;background:url('/bg-hero.png') center 48%/cover no-repeat;z-index:-2;animation:rylune-wallpaper .9s cubic-bezier(.2,.7,.2,1) both;transition:transform .65s ease}
+.hero-panel:hover::before{transform:scale(1.025)}
+.hero-overlay{z-index:-1;pointer-events:none}
+.hero-content{min-height:365px;padding:48px;align-items:center;animation:rylune-hero .45s .06s both}
+.hero-copy h1{font-size:clamp(46px,5.6vw,86px);margin:18px 0 14px}
+.hero-copy p{font-size:16px;line-height:1.6}
+.hero-actions{margin-top:30px;gap:12px}
+.primary.large{height:56px;padding:0 26px;font-size:15px}.configure{min-height:56px;width:56px}
+.home-bottom-row{gap:16px;flex-shrink:0}.section-title-block h2{font-size:22px}
+.featured-grid{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(88px,.36fr);gap:16px}
+.featured-card,.library-card{height:clamp(145px,20vh,205px);border-radius:13px;transition:transform .22s cubic-bezier(.2,.7,.2,1),border-color .22s,box-shadow .22s;animation:rylune-enter .34s both}
+.featured-card:nth-child(2){animation-delay:.045s}.featured-card:nth-child(3){animation-delay:.09s}.library-card{animation-delay:.135s}
+.featured-card .featured-backdrop{transition:transform .5s ease,filter .4s ease}
+.featured-card:hover:not(:disabled){transform:translateY(-4px);border-color:#a83748;box-shadow:0 10px 24px #0005}
+.featured-card:hover:not(:disabled) .featured-backdrop{transform:scale(1.08);filter:saturate(.95)}
+.featured-info{left:20px;right:20px;bottom:18px;gap:7px}.featured-info h3{font-size:clamp(18px,1.8vw,27px)}.featured-info p{font-size:12px}
+.bottom-bar{height:84px;min-height:84px;padding:12px 34px;gap:24px}.game-mark{width:48px;height:48px}.active-block select{font-size:14px;min-height:25px}.active-block span{font-size:12px}.status-line{font-size:12px}.progress-track{height:4px}.play-button{height:54px;min-width:180px}
+.primary,.play-button,.glass-btn,.icon-square,.profile-chip{transition:background .2s,border-color .2s,transform .2s,box-shadow .2s}
+.primary:hover:not(:disabled),.play-button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 20px #d9253d35}
+.primary:active:not(:disabled),.play-button:active:not(:disabled),.glass-btn:active:not(:disabled),.featured-card:active:not(:disabled){transform:scale(.98)}
+.page-head{padding:8px 0 4px}.page-title h1{font-size:36px}.page-panel{padding:24px}.profile-grid,.account-choice-grid{gap:20px}
+.profile-card,.action-panel,.info-panel{padding:26px;transition:border-color .2s,background .2s,transform .2s}
+.action-panel{display:block;text-align:left}.profile-card:hover,.action-panel:hover{border-color:#593039;transform:translateY(-2px)}
+.version-row,.list-card{padding:18px 22px;transition:background .18s,border-color .18s}
+.version-row:hover,.list-card:hover{background:#1c1b1d;border-color:#3e3034}
+.modal-card{animation:rylune-modal .23s cubic-bezier(.2,.7,.2,1) both}.overlay{animation:rylune-fade .18s ease both}.toast{animation:rylune-modal .2s ease both}
+@keyframes rylune-enter{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+@keyframes rylune-hero{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+@keyframes rylune-wallpaper{from{opacity:.55;scale:1.035}to{opacity:1;scale:1}}
+@keyframes rylune-tab{from{transform:scaleX(.3);opacity:0}to{transform:scaleX(1);opacity:1}}
+@keyframes rylune-modal{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes rylune-fade{from{opacity:0}to{opacity:1}}
+@media(max-width:1250px){.topbar{padding:0 22px;gap:12px}.tab{padding:0 10px}.page-wrap{padding:22px 26px}.hero-content{padding:36px}.bottom-bar{padding:10px 26px}}
+@media(max-width:1050px){.brand{min-width:100px}.topnav{gap:0}.tab{padding:0 8px}.tab svg{display:none}.profile-chip-text{display:none}.topbar-actions{gap:5px}.featured-grid{gap:12px}.hero-content{padding:32px}}
+@media(max-height:820px){.topbar{height:68px;min-height:68px}.page-wrap{padding-top:20px;padding-bottom:20px}.home-view{gap:20px}.hero-panel{flex-basis:310px;min-height:310px}.hero-content{min-height:310px;padding:30px 36px}.featured-card,.library-card{height:135px}.bottom-bar{height:72px;min-height:72px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

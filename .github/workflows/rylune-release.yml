@@ -6,6 +6,7 @@ on:
     paths:
       - 'RyluneLauncher-Tauri-v0.6.zip'
       - 'launcher/**'
+      - '.github/workflows/rylune-release.yml'
 permissions:
   contents: write
 jobs:
@@ -40,6 +41,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install --no-audit --no-fund
         working-directory: launcher
+      - run: npm run build
+        working-directory: launcher
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+        working-directory: launcher
       - run: npm run tauri build
         working-directory: launcher
       - name: Prepare EXEs
@@ -60,11 +65,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = 'v0.6.0-alpha'
+          $tag = 'v0.7.0-alpha'
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag --clobber release-files/RyluneClient.exe release-files/RyluneClient-Setup.exe
           } else {
-            gh release create $tag --target (git rev-parse HEAD).Trim() --title 'Rylune v0.6 Alpha' --notes 'Unsigned Windows alpha; game launch and authentication not yet verified.' --prerelease release-files/RyluneClient.exe release-files/RyluneClient-Setup.exe
+            gh release create $tag --target (git rev-parse HEAD).Trim() --title 'Rylune v0.7 Alpha' --notes 'Unsigned Windows alpha; game launch and authentication not yet verified.' --prerelease release-files/RyluneClient.exe release-files/RyluneClient-Setup.exe
           }
           if ($LASTEXITCODE -ne 0) { throw 'Release failed' }
