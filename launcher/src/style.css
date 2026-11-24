@@ -389,3 +389,6 @@ body{background:#09090a;color:var(--text)}
 @media(max-width:1050px){.brand{min-width:100px}.topnav{gap:0}.tab{padding:0 8px}.tab svg{display:none}.profile-chip-text{display:none}.topbar-actions{gap:5px}.featured-grid{gap:12px}.hero-content{padding:32px}}
 @media(max-height:820px){.topbar{height:68px;min-height:68px}.page-wrap{padding-top:20px;padding-bottom:20px}.home-view{gap:20px}.hero-panel{flex-basis:310px;min-height:310px}.hero-content{min-height:310px;padding:30px 36px}.featured-card,.library-card{height:135px}.bottom-bar{height:72px;min-height:72px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* 0.8: compact copy, unchanged Crimson layout */
+.page-title p:empty,.modal-card p:empty{display:none}.hero-caption{display:none}.page-title h1{margin:2px 0}.featured-grid{grid-auto-columns:minmax(0,1fr)}.status-line{font-variant-numeric:tabular-nums}.progress-track div{transition:width .35s ease}.play-button:disabled,.primary.large:disabled{opacity:.75}.hero-wallpaper::before{will-change:auto}

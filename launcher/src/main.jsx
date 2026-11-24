@@ -78,6 +78,7 @@ function App() {
   const [catalog, setCatalog] = useState([]);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [gameState, setGameState] = useState('idle');
   const [status, setStatus] = useState('Ready to play');
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState([]);
@@ -94,12 +95,13 @@ function App() {
   const selectedProfile = cfg.profiles.find((x) => x.id === cfg.profile) || cfg.profiles[0];
   const selectedAccount = cfg.accounts.find((x) => x.id === cfg.account);
 
-  const profileVersions = useMemo(() => [...new Set([R, '26.1', '26.2', '26.3', ...installed, ...catalog.map(v => v.id), modal?.value?.version].filter(supported))], [installed, catalog, modal]);
+  const profileVersions = useMemo(() => [...new Set([R, ...installed, ...catalog.map(v => v.id), modal?.value?.version].filter(supported))], [installed, catalog, modal]);
   const versionRows = useMemo(() => {
-    const rows = catalog.length ? catalog : ['1.21.11','26.1','26.2','26.3'].map(id => ({id, type:'release'}));
+    const rows = catalog.length ? catalog : [...new Set([R,...installed])].map(id => ({id, type:'release'}));
     return rows.filter(v => supported(v.id) && v.type === 'release' && (!installedOnly || installed.includes(v.id)));
   }, [catalog, installedOnly, installed]);
-  const featureVersions = featured.map(id => ({id, title:id+' Fabric', subtitle:'Minecraft Java Edition'}));
+  const available = new Set([R, ...installed, ...catalog.map(v=>v.id)]);
+  const featureVersions = [...new Set([...featured.filter(id=>available.has(id)),...catalog.map(v=>v.id)])].slice(0,3).map(id => ({id, title:id+' Fabric', subtitle:'Minecraft Java Edition'}));
 
   function notify(e) {
     setToast(String(e?.message || e));
@@ -126,10 +128,10 @@ function App() {
     let un = [];
     Promise.all([
       listen('launcher-log', (e) => {
-        setStatus(e.payload);
         setLogs((l) => [...l.slice(-1499), e.payload]);
       }),
       listen('launcher-progress', (e) => setProgress(e.payload)),
+      listen('launcher-state', e => {setGameState(e.payload); if(e.payload==='running')setStatus('Minecraft is running');}),
     ]).then((x) => {
       if (stopped) x.forEach((f) => f());
       else un = x;
@@ -198,8 +200,9 @@ function App() {
     }
 
     setBusy(true);
+    setGameState('preparing');
     setProgress(0);
-    setStatus(installOnly ? 'Preparing installation…' : 'Preparing Minecraft…');
+    setStatus(installOnly ? 'Preparing installation…' : 'Starting Minecraft…');
 
     try {
       await call('run_game', {
@@ -207,14 +210,16 @@ function App() {
         account: selectedAccount || null,
         installOnly,
       });
-      setStatus(installOnly ? 'Installation complete' : 'Game session ended');
+      setStatus(installOnly ? 'Installation complete' : 'Game closed');
       refresh();
     } catch (e) {
-      setStatus('Operation failed');
+      setStatus('Launch or installation failed');
+      setPage('Logs');
       notify(e);
       setLogs((l) => [...l, String(e)]);
     } finally {
       setBusy(false);
+      setGameState('idle');
     }
   }
 
@@ -351,18 +356,18 @@ function App() {
                 <div className="hero-copy">
                   <div className="hero-badge"><span className="red-line" />RYLUNE FABRIC</div>
                   <h1>{selectedProfile?.version ? `${selectedProfile.version} Fabric` : 'Minecraft'}</h1>
-                  <p>Minecraft Java Edition · Your world. Your rules.</p>
+                  <p>Minecraft: Java Edition</p>
                   <div className="hero-actions">
-                    <button className="primary large" disabled={busy} onClick={() => run()}><Play size={18} fill="currentColor" />{busy ? 'Working…' : isInstalled(selectedProfile?.version) ? 'Launch game' : 'Install & play'}</button>
+                    <button className="primary large" disabled={busy} onClick={() => run()}><Play size={18} fill="currentColor" />{busy ? gameState==='running' ? 'Running' : 'Starting…' : isInstalled(selectedProfile?.version) ? 'Play' : 'Install & play'}</button>
                     <button className="glass-btn configure" title="Configure active profile" onClick={() => edit(selectedProfile)}><SlidersHorizontal size={19}/></button>
                   </div>
                 </div>
               </div>
-              <span className="hero-caption">MINECRAFT / RYLUNE</span>
+              
             </div>
             <div className="home-bottom-row">
               <div className="section-title-block">
-                <h2>Play your way</h2>
+                <h2>Versions</h2>
                 <button className="text-btn" onClick={() => setPage('Versions')}>All versions <ArrowUpRight size={16}/></button>
               </div>
               <div className="featured-grid">
@@ -385,14 +390,14 @@ function App() {
             <div className="page-title">
               <div className="page-icon"><PageIcon size={18} /></div>
               <div>
-                <span className="eyebrow">RYLUNE DESKTOP</span>
+                
                 <h1>{page}</h1>
                 <p>
-                  {page === 'Versions' && 'Install and manage Minecraft versions.'}
-                  {page === 'Profiles' && 'Create separate launch setups with custom RAM and Java.'}
-                  {page === 'Accounts' && 'Switch between premium and offline accounts.'}
-                  {page === 'Settings' && 'Configure launcher-wide preferences and OAuth.'}
-                  {page === 'Logs' && 'Read the live launcher and game output.'}
+                  {page === 'Versions' && ''}
+                  {page === 'Profiles' && ''}
+                  {page === 'Accounts' && ''}
+                  {page === 'Settings' && ''}
+                  {page === 'Logs' && ''}
                 </p>
               </div>
             </div>
@@ -455,7 +460,7 @@ function App() {
                 <p>{v.version} Fabric · profiles/{folderName(v)}</p>
                 <div className="metric-row">
                   <span><MemoryStick size={15} /> {v.ram} MB</span>
-                  <span><Cpu size={15} /> {v.java ? 'Custom Java' : 'System Java'}</span>
+                  <span><Cpu size={15} /> {v.java ? 'Custom Java' : 'Automatic Java'}</span>
                 </div>
                 <div className="card-actions">
                   <button className="glass-btn" onClick={() => action(() => save({ profile: v.id }))}>Select</button>
@@ -474,26 +479,26 @@ function App() {
               <button className="action-panel" onClick={login}>
                 <div className="action-icon"><ShieldCheck size={24} /></div>
                 <h3>Microsoft account</h3>
-                <p>Sign in using device code flow for premium Minecraft Java accounts.</p>
-                <span>Connect premium <ArrowUpRight size={14} /></span>
+                <p>Sign in to Minecraft: Java Edition.</p>
+                <span>Sign in <ArrowUpRight size={14} /></span>
               </button>
               <button className="action-panel" onClick={() => setModal({ kind: 'offline', value: '' })}>
                 <div className="action-icon"><UserRound size={24} /></div>
                 <h3>Offline account</h3>
-                <p>Local play for Minecraft owners. Install or repair files without Microsoft sign-in.</p>
-                <span>Add local account <Plus size={14} /></span>
+                <p>Local singleplayer.</p>
+                <span>Add account <Plus size={14} /></span>
               </button>
             </div>
 
             <div className="page-subsection">
               <div>
-                <span className="eyebrow">Saved identities</span>
+                
                 <h2>Accounts</h2>
               </div>
               <span className="muted-caption">{cfg.accounts.length} total</span>
             </div>
 
-            {!cfg.accounts.length && <div className="empty-state">No accounts yet. Add a premium or offline account to continue.</div>}
+            {!cfg.accounts.length && <div className="empty-state">No saved accounts.</div>}
 
             <div className="stack-list">
               {cfg.accounts.map((v) => (
@@ -533,10 +538,10 @@ function App() {
           <section className="settings-view">
             <div className="info-panel">
               <h3>Microsoft authentication</h3>
-              <p>Enter the OAuth application client ID you created for device code sign-in.</p>
+              <p>Microsoft application ID (advanced).</p>
               <label>
                 Application client ID
-                <input value={settingsValue} onChange={(e) => setSettingsValue(e.target.value)} placeholder="Your OAuth application ID" />
+                <input value={settingsValue} onChange={(e) => setSettingsValue(e.target.value)} placeholder="Application ID" />
               </label>
               <button className="primary" onClick={() => action(async () => { await save({ client_id: settingsValue.trim() }); notify('Settings saved'); })}>
                 Save settings
@@ -549,7 +554,7 @@ function App() {
             </div>
             <div className="info-panel">
               <h3>About Rylune</h3>
-              <p>Version 0.7.0 alpha · Tauri 2 · React · Rust. Modern Fabric edition (1.21.11–26.3).</p>
+              <p>Version 0.8.0</p>
             </div>
           </section>
         )}
@@ -561,7 +566,7 @@ function App() {
               <button className="glass-btn" onClick={() => setLogs([])}>Clear</button>
             </div>
             <div className="console-view">
-              {logs.length ? logs.map((l, i) => <div key={i}>{l}</div>) : 'Waiting for launcher output…'}
+              {logs.length ? logs.map((l, i) => <div key={i}>{l}</div>) : 'No logs yet.'}
               <div ref={logEnd} />
             </div>
           </section>
@@ -581,14 +586,14 @@ function App() {
         </div>
 
         <div className="bottom-center">
-          <div className="status-line"><i className={busy ? 'status-dot pulse' : 'status-dot'} /> {status}</div>
+          <div className="status-line"><i className={busy ? 'status-dot pulse' : 'status-dot'} /> {status}{busy && gameState!=='running' && progress>0 ? ` · ${progress}%` : ''}</div>
           <div className="progress-track"><div style={{ width: `${busy ? Math.max(progress, 5) : 0}%` }} /></div>
         </div>
 
         <button className="play-button" disabled={busy} onClick={() => run()}>
           <Play size={20} fill="currentColor" />
           <div>
-            <strong>{busy ? 'Working' : 'Play'}</strong>
+            <strong>{busy ? gameState==='running' ? 'Running' : 'Starting…' : 'Play'}</strong>
             <span>{busy ? 'Please wait' : 'Launch Minecraft'}</span>
           </div>
         </button>
@@ -610,7 +615,7 @@ function App() {
             {modal.kind === 'profile' && (
               <>
                 <h2>Configure profile</h2>
-                <p>Choose the version, RAM, and optional Java executable for this instance.</p>
+                <p></p>
                 <label>
                   Profile name
                   <input autoFocus value={modal.value.name} onChange={(e) => change('name', e.target.value)} />
@@ -628,9 +633,9 @@ function App() {
                 </label>
                 <label>
                   Java executable
-                  <input value={modal.value.java} placeholder="Blank = auto-detect installed Java" onChange={(e) => change('java', e.target.value)} />
+                  <input value={modal.value.java} placeholder="Automatic (recommended)" onChange={(e) => change('java', e.target.value)} />
                 </label>
-                <small>1.21.11 uses Java 21; 26.x uses Java 25. The launcher checks official version metadata. Changing the game version uses a different directory; old files are kept.</small>
+                <small>Java is installed automatically if needed. Changing versions preserves existing files.</small>
                 <button className="primary full" onClick={() => action(saveProfile)}>Save profile</button>
               </>
             )}
@@ -638,7 +643,7 @@ function App() {
             {modal.kind === 'offline' && (
               <>
                 <h2>Add offline account</h2>
-                <p>For local play with a legitimately owned copy. Downloads need internet; authenticated servers require Microsoft sign-in.</p>
+                <p>Local play for Minecraft owners. Online-mode servers require Microsoft sign-in.</p>
                 <label>
                   Username
                   <input autoFocus maxLength={16} value={modal.value} onChange={(e) => setModal({ ...modal, value: e.target.value })} />
@@ -656,7 +661,7 @@ function App() {
                     <div className="device-code">{device.code}</div>
                     <p className="device-url">{device.url}</p>
                     <button className="glass-btn" onClick={() => action(() => navigator.clipboard.writeText(device.code))}><Copy size={15} /> Copy code</button>
-                    <p className="helper-text">Waiting for Microsoft authentication…</p>
+                    <p className="helper-text">Waiting for sign-in…</p>
                   </>
                 )}
               </>
@@ -665,7 +670,7 @@ function App() {
             {modal.kind === 'removeProfile' && (
               <>
                 <h2>Remove profile?</h2>
-                <p>The launcher entry will be removed, but the files on disk will remain untouched.</p>
+                <p>Game files will be kept.</p>
                 <button
                   className="primary full"
                   onClick={() =>

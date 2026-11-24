@@ -4,19 +4,29 @@ use sha1::{Sha1,Digest};
 use std::{path::Path,io::{Read,Write,BufRead,BufReader},process::{Command,Stdio},time::Duration};
 pub const MANIFEST:&str="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const FABRIC_META:&str="https://meta.fabricmc.net/v2/versions/loader";
-pub fn client()->R<Client>{Client::builder().user_agent("RyluneLauncher/0.7").timeout(Duration::from_secs(120)).build().map_err(err)}
+pub fn client()->R<Client>{Client::builder().user_agent("RyluneLauncher/0.8").timeout(Duration::from_secs(120)).build().map_err(err)}
 pub fn get_json(c:&Client,url:&str)->R<Value>{c.get(url).send().map_err(err)?.error_for_status().map_err(err)?.json().map_err(err)}
 fn strv<'a>(v:&'a Value,k:&str)->R<&'a str>{v[k].as_str().ok_or_else(||format!("Missing metadata field {k}"))}
 fn safe_path(root:&Path,s:&str)->R<PathBuf>{if s.is_empty()||s.contains('\\')||s.contains(':')||s.split('/').any(|x|x.is_empty()||x=="."||x==".."){return Err(format!("Unsafe path: {s}"))}Ok(root.join(s))}
 fn matches_hash(p:&Path,hash:&str)->bool{if hash.is_empty(){return p.is_file()}let Ok(mut f)=fs::File::open(p)else{return false};let mut h=Sha1::new();let mut buf=[0u8;65536];loop{match f.read(&mut buf){Ok(0)=>break,Ok(n)=>h.update(&buf[..n]),Err(_)=>return false}}format!("{:x}",h.finalize()).eq_ignore_ascii_case(hash)}
-fn download(c:&Client,p:&Path,url:&str,hash:&str,online:bool)->R<()>{if matches_hash(p,hash){return Ok(())}if !online{return Err(format!("Missing local file: {}. Install/repair online first.",p.display()))}if !url.starts_with("https://"){return Err("Only HTTPS downloads are allowed".into())}fs::create_dir_all(p.parent().ok_or("Invalid file path")?).map_err(err)?;let tmp=p.with_extension("part");let mut r=c.get(url).send().map_err(|e|format!("Cannot download {}: {e}. Check your internet connection and retry.",p.display()))?.error_for_status().map_err(|e|format!("Download failed for {}: {e}",p.display()))?;let mut f=fs::File::create(&tmp).map_err(err)?;std::io::copy(&mut r,&mut f).map_err(err)?;f.flush().map_err(err)?;drop(f);if !matches_hash(&tmp,hash){let _=fs::remove_file(&tmp);return Err(format!("Checksum mismatch: {}",p.display()))}fs::rename(tmp,p).map_err(err)}
+fn download(c:&Client,p:&Path,url:&str,hash:&str,online:bool)->R<()>{
+    if matches_hash(p,hash){return Ok(())}
+    let mut last=String::new();
+    for attempt in 0..3 {
+        match download_once(c,p,url,hash,online){Ok(())=>return Ok(()),Err(e)=>last=e}
+        if !online{break}
+        if attempt<2{std::thread::sleep(Duration::from_millis(400*(attempt+1)));}
+    }
+    Err(last)
+}
+fn download_once(c:&Client,p:&Path,url:&str,hash:&str,online:bool)->R<()>{if matches_hash(p,hash){return Ok(())}if !online{return Err(format!("Missing local file: {}. Install/repair online first.",p.display()))}if !url.starts_with("https://"){return Err("Only HTTPS downloads are allowed".into())}fs::create_dir_all(p.parent().ok_or("Invalid file path")?).map_err(err)?;let tmp=p.with_file_name(format!("{}.part",p.file_name().ok_or("Invalid download name")?.to_string_lossy()));let mut r=c.get(url).send().map_err(|e|format!("Cannot download {}: {e}. Check your internet connection and retry.",p.display()))?.error_for_status().map_err(|e|format!("Download failed for {}: {e}",p.display()))?;let mut f=fs::File::create(&tmp).map_err(err)?;std::io::copy(&mut r,&mut f).map_err(err)?;f.flush().map_err(err)?;drop(f);if !matches_hash(&tmp,hash){let _=fs::remove_file(&tmp);return Err(format!("Checksum mismatch: {}",p.display()))}fs::rename(tmp,p).map_err(err)}
 fn json_file(p:&Path)->R<Value>{serde_json::from_slice(&fs::read(p).map_err(err)?).map_err(err)}
 fn version_path(g:&Path,id:&str)->R<PathBuf>{if !safe_id(id){return Err("Invalid version ID".into())}Ok(g.join("versions").join(id).join(format!("{id}.json")))}
 fn os_name()->&'static str{if cfg!(target_os="windows"){"windows"}else if cfg!(target_os="macos"){"osx"}else{"linux"}}
 fn allowed(v:&Value)->bool{let Some(rules)=v["rules"].as_array()else{return true};let mut allow=false;for r in rules{let o=&r["os"];if o["name"].as_str().is_some_and(|x|x!=os_name()){continue}if o["arch"].as_str().is_some_and(|x|!match x {"amd64"|"x86_64"|"x64"=>cfg!(target_arch="x86_64"),"x86"|"i386"=>cfg!(target_arch="x86"),"arm64"|"aarch64"=>cfg!(target_arch="aarch64"),_=>x==std::env::consts::ARCH}){continue}if o["version"].is_string(){continue}if r["features"].as_object().is_some_and(|f|f.values().any(|x|x.as_bool()==Some(true))){continue}allow=r["action"]=="allow";}allow}
 fn maven(n:&str)->R<String>{let (n,ext)=n.split_once('@').unwrap_or((n,"jar"));let a:Vec<_>=n.split(':').collect();if a.len()<3||a.len()>4{return Err(format!("Invalid Maven coordinate {n}"))}let classifier=if a.len()==4{format!("-{}",a[3])}else{String::new()};Ok(format!("{}/{}/{}/{}-{}{}.{}",a[0].replace('.',"/"),a[1],a[2],a[1],a[2],classifier,ext))}
 fn add_lib(c:&Client,g:&Path,l:&Value,online:bool,cp:&mut Vec<PathBuf>,native:&Path)->R<()>{if !allowed(l){return Ok(())}let a=&l["downloads"]["artifact"];if a.is_object(){let p=safe_path(&g.join("libraries"),strv(a,"path")?)?;download(c,&p,strv(a,"url")?,a["sha1"].as_str().unwrap_or(""),online)?;cp.push(p)}else if l["downloads"].is_null(){let path=maven(strv(l,"name")?)?;let p=safe_path(&g.join("libraries"),&path)?;let url=format!("{}/{}",l["url"].as_str().unwrap_or("https://libraries.minecraft.net/").trim_end_matches('/'),path);download(c,&p,&url,"",online)?;cp.push(p)}if let Some(class)=l["natives"][os_name()].as_str(){let class=class.replace("${arch}",if cfg!(target_pointer_width="64"){"64"}else{"32"});let n=&l["downloads"]["classifiers"][&class];if n.is_object(){let p=safe_path(&g.join("libraries"),strv(n,"path")?)?;download(c,&p,strv(n,"url")?,n["sha1"].as_str().unwrap_or(""),online)?;let mut z=zip::ZipArchive::new(fs::File::open(p).map_err(err)?).map_err(err)?;for i in 0..z.len(){let mut f=z.by_index(i).map_err(err)?;let name=f.name().to_string();if f.is_dir()||name.starts_with("META-INF/")||l["extract"]["exclude"].as_array().is_some_and(|a|a.iter().any(|e|e.as_str().is_some_and(|x|name.starts_with(x)))){continue}let Some(s)=f.enclosed_name()else{continue};let out=native.join(s);fs::create_dir_all(out.parent().ok_or("Invalid native path")?).map_err(err)?;std::io::copy(&mut f,&mut fs::File::create(out).map_err(err)?).map_err(err)?;}}}Ok(())}
-fn metadata(c:&Client,g:&Path,id:&str,online:bool)->R<Value>{let p=version_path(g,id)?;if !p.exists(){if !online{return Err("Version not installed. Connect to the internet and install it first.".into())}let manifest=get_json(c,MANIFEST)?;let item=manifest["versions"].as_array().ok_or("Invalid version manifest")?.iter().find(|v|v["id"].as_str()==Some(id)).ok_or("Unknown official Minecraft version")?;download(c,&p,strv(item,"url")?,item["sha1"].as_str().unwrap_or(""),true)?;}json_file(&p)}
+fn metadata(c:&Client,g:&Path,id:&str,online:bool)->R<Value>{let p=version_path(g,id)?;if json_file(&p).ok().and_then(|v|v["id"].as_str().map(str::to_owned)).as_deref()!=Some(id){if !online{return Err("Version not installed. Connect to the internet and install it first.".into())}let manifest=get_json(c,MANIFEST)?;let item=manifest["versions"].as_array().ok_or("Invalid version manifest")?.iter().find(|v|v["id"].as_str()==Some(id)).ok_or("Unknown official Minecraft version")?;download(c,&p,strv(item,"url")?,item["sha1"].as_str().unwrap_or(""),true)?;}json_file(&p)}
 fn args(v:&Value,kind:&str)->Vec<String>{v["arguments"][kind].as_array().into_iter().flatten().flat_map(|x|{if let Some(s)=x.as_str(){vec![s.to_string()]}else if allowed(x){if let Some(s)=x["value"].as_str(){vec![s.to_string()]}else{x["value"].as_array().into_iter().flatten().filter_map(|v|v.as_str().map(str::to_owned)).collect()}}else{vec![]}}).collect()}
 pub fn run(app:&AppHandle,p:&Value,a:&Value,install_only:bool)->R<()>{let id=strv(p,"id")?;if !safe_id(id){return Err("Invalid profile ID".into())}let version=strv(p,"version")?;let ram=p["ram"].as_u64().filter(|n|(512..=65536).contains(n)).ok_or("Invalid RAM")?;let aid=a["id"].as_str().unwrap_or("");let username=a["name"].as_str().unwrap_or("");let state=app.state::<Runtime>();let token=if a["type"]=="Microsoft"{state.tokens.lock().unwrap().get(aid).cloned()}else{None};let online=a["type"]=="Microsoft"&&token.is_some();
 if !install_only {
@@ -32,7 +42,7 @@ log(app,format!("Preparing Minecraft {version} with Fabric"));
 let m=metadata(&c,&g,base,allow_downloads)?;
 if m["id"].as_str()!=Some(base){return Err("Minecraft metadata version mismatch".into())}
 let cache=g.join("fabric-profile.json");
-if !cache.is_file(){
+if json_file(&cache).ok().is_none_or(|v|v["inheritsFrom"].as_str()!=Some(base)||v["mainClass"].as_str().is_none()){
     if !allow_downloads{return Err("Connect to the internet to install this Fabric profile".into())}
     let loaders=get_json(&c,&format!("{FABRIC_META}/{base}"))?;
     let loader=loaders.as_array().into_iter().flatten().find(|v|v["loader"]["stable"]==true).ok_or("No stable Fabric Loader for this release")?;
@@ -48,16 +58,73 @@ if overlay["inheritsFrom"].as_str()!=Some(base){return Err("Fabric profile does 
 let vid=strv(&overlay,"id")?;let out=version_path(&g,vid)?;fs::create_dir_all(out.parent().ok_or("Invalid version path")?).map_err(err)?;fs::write(out,serde_json::to_vec_pretty(&overlay).map_err(err)?).map_err(err)?;
 let clientjar=g.join("versions").join(base).join(format!("{base}.jar"));let d=&m["downloads"]["client"];download(&c,&clientjar,strv(d,"url")?,d["sha1"].as_str().unwrap_or(""),allow_downloads)?;let mut cp=vec![];log(app,"Checking libraries and native files");let mut seen=std::collections::HashSet::new();for l in overlay["libraries"].as_array().into_iter().flatten().chain(m["libraries"].as_array().into_iter().flatten()){
 if !allowed(l){continue}let name=strv(l,"name")?;let coords:Vec<_>=name.split(':').collect();let key=if coords.len()>=3{format!("{}:{}:{}",coords[0],coords[1],coords.get(3).unwrap_or(&""))}else{name.to_owned()};if seen.insert(key){add_lib(&c,&g,l,allow_downloads,&mut cp,&native)?;}}
-cp.push(clientjar);let classpath=std::env::join_paths(cp).map_err(err)?.to_string_lossy().into_owned();let asset_id=m["assetIndex"]["id"].as_str().or(m["assets"].as_str()).unwrap_or("legacy");if !safe_id(asset_id){return Err("Invalid asset index".into())}let assets=g.join("assets");let ai=&m["assetIndex"];let index=assets.join("indexes").join(format!("{asset_id}.json"));download(&c,&index,strv(ai,"url")?,ai["sha1"].as_str().unwrap_or(""),allow_downloads)?;let asset_meta=json_file(&index)?;let objects=asset_meta["objects"].as_object().ok_or("Invalid assets index")?;let total=objects.len();for (i,(name,obj)) in objects.iter().enumerate(){let hash=strv(obj,"hash")?;if hash.len()!=40||!hash.chars().all(|x|x.is_ascii_hexdigit()){return Err("Invalid asset hash".into())}let rel=format!("{}/{}",&hash[..2],hash);let dest=assets.join("objects").join(&rel);download(&c,&dest,&format!("https://resources.download.minecraft.net/{rel}"),hash,allow_downloads)?;if asset_meta["virtual"]==true{let v=safe_path(&assets.join("virtual").join(asset_id),name)?;if !v.exists(){fs::create_dir_all(v.parent().ok_or("Invalid asset path")?).map_err(err)?;fs::copy(&dest,v).map_err(err)?;}}if asset_meta["map_to_resources"]==true{let v=safe_path(&inst.join("resources"),name)?;if !v.exists(){fs::create_dir_all(v.parent().ok_or("Invalid asset path")?).map_err(err)?;fs::copy(&dest,v).map_err(err)?;}}if i%30==0||i+1==total{log(app,format!("Assets {}/{}",i+1,total));let _=app.emit("launcher-progress",if total==0{100}else{((i+1)*100/total) as u32});}}let logging=&m["logging"]["client"];let mut logging_arg=None;
+cp.push(clientjar);let classpath=std::env::join_paths(cp).map_err(err)?.to_string_lossy().into_owned();let asset_id=m["assetIndex"]["id"].as_str().or(m["assets"].as_str()).unwrap_or("legacy");if !safe_id(asset_id){return Err("Invalid asset index".into())}let assets=g.join("assets");let ai=&m["assetIndex"];let index=assets.join("indexes").join(format!("{asset_id}.json"));download(&c,&index,strv(ai,"url")?,ai["sha1"].as_str().unwrap_or(""),allow_downloads)?;let asset_meta=json_file(&index)?;let objects=asset_meta["objects"].as_object().ok_or("Invalid assets index")?;let total=objects.len();for (i,(name,obj)) in objects.iter().enumerate(){let hash=strv(obj,"hash")?;if hash.len()!=40||!hash.chars().all(|x|x.is_ascii_hexdigit()){return Err("Invalid asset hash".into())}let rel=format!("{}/{}",&hash[..2],hash);let dest=assets.join("objects").join(&rel);download(&c,&dest,&format!("https://resources.download.minecraft.net/{rel}"),hash,allow_downloads)?;if asset_meta["virtual"]==true{let v=safe_path(&assets.join("virtual").join(asset_id),name)?;if !v.exists(){fs::create_dir_all(v.parent().ok_or("Invalid asset path")?).map_err(err)?;fs::copy(&dest,v).map_err(err)?;}}if asset_meta["map_to_resources"]==true{let v=safe_path(&inst.join("resources"),name)?;if !v.exists(){fs::create_dir_all(v.parent().ok_or("Invalid asset path")?).map_err(err)?;fs::copy(&dest,v).map_err(err)?;}}if i%30==0||i+1==total{log(app,format!("Assets {}/{}",i+1,total));let _=app.emit("launcher-progress",if total==0{80}else{15+((i+1)*65/total) as u32});}}let logging=&m["logging"]["client"];let mut logging_arg=None;
 if let Some(file)=logging["file"].as_object(){let id=file.get("id").and_then(Value::as_str).ok_or("Invalid logging config")?;if !safe_id(id){return Err("Invalid logging config ID".into())}let dest=g.join("assets/log_configs").join(id);download(&c,&dest,strv(&logging["file"],"url")?,logging["file"]["sha1"].as_str().unwrap_or(""),allow_downloads)?;if let Some(arg)=logging["argument"].as_str(){logging_arg=Some(arg.replace("${path}",&dest.to_string_lossy()));}}
+let required=m["javaVersion"]["majorVersion"].as_u64().ok_or("Missing Java version in Minecraft metadata")?;
+let java=ensure_java(p,&g,&m,required,&c,|msg|log(app,msg))?;
 let marker=g.join(".rylune-installed.json");fs::write(marker,serde_json::to_vec_pretty(&json!({"version":base,"loader":"fabric","fabric_profile":vid})).map_err(err)?).map_err(err)?;
 let _=app.emit("launcher-progress",100u32);
 if install_only{log(app,"Installation completed");return Ok(())}
-let required=m["javaVersion"]["majorVersion"].as_u64().unwrap_or(if base=="1.21.11"{21}else{25});let java=select_java(p,required)?;let main=overlay["mainClass"].as_str().or(m["mainClass"].as_str()).ok_or("Missing main class")?;let uuid=aid.replace('-',"");let access=token.as_deref().unwrap_or("0");let game_assets=if asset_meta["virtual"]==true{assets.join("virtual").join(asset_id)}else{assets.clone()};let replacements=vec![("auth_player_name",username.to_string()),("version_name",vid.to_string()),("game_directory",inst.to_string_lossy().into()),("assets_root",assets.to_string_lossy().into()),("game_assets",game_assets.to_string_lossy().into()),("assets_index_name",asset_id.into()),("auth_uuid",uuid),("auth_access_token",access.into()),("auth_session",access.into()),("user_type",(if online{"msa"}else{"legacy"}).into()),("user_properties","{}".into()),("version_type","Rylune".into()),("natives_directory",native.to_string_lossy().into()),("launcher_name","Rylune".into()),("launcher_version","0.7.0".into()),("classpath",classpath.clone()),("classpath_separator",(if cfg!(windows){";"}else{":"}).into()),("library_directory",g.join("libraries").to_string_lossy().into()),("auth_xuid","0".into()),("clientid","0".into())];let replace=|s:String|replacements.iter().fold(s,|acc,(k,v)|acc.replace(&format!("${{{k}}}"),v));let mut jvm=args(&m,"jvm");jvm.extend(args(&overlay,"jvm"));if let Some(arg)=logging_arg{jvm.push(arg);}if !jvm.iter().any(|x|x=="${classpath}"){jvm.extend(["-cp".into(),"${classpath}".into()])}if !jvm.iter().any(|x|x.starts_with("-Djava.library.path=")){jvm.push("-Djava.library.path=${natives_directory}".into())}jvm.extend([format!("-Xmx{ram}M"),"-Xms512M".into()]);let mut ga=if let Some(s)=m["minecraftArguments"].as_str(){s.split_whitespace().map(str::to_owned).collect()}else{args(&m,"game")};ga.extend(args(&overlay,"game"));if let Some(s)=overlay["minecraftArguments"].as_str(){ga=s.split_whitespace().map(str::to_owned).collect();}log(app,format!("Starting {version} — Java executable: {}",java.display()));
+let main=overlay["mainClass"].as_str().or(m["mainClass"].as_str()).ok_or("Missing main class")?;let uuid=aid.replace('-',"");let access=token.as_deref().unwrap_or("0");let game_assets=if asset_meta["virtual"]==true{assets.join("virtual").join(asset_id)}else{assets.clone()};let replacements=vec![("auth_player_name",username.to_string()),("version_name",vid.to_string()),("game_directory",inst.to_string_lossy().into()),("assets_root",assets.to_string_lossy().into()),("game_assets",game_assets.to_string_lossy().into()),("assets_index_name",asset_id.into()),("auth_uuid",uuid),("auth_access_token",access.into()),("auth_session",access.into()),("user_type",(if online{"msa"}else{"legacy"}).into()),("user_properties","{}".into()),("version_type","Rylune".into()),("natives_directory",native.to_string_lossy().into()),("launcher_name","Rylune".into()),("launcher_version","0.8.0".into()),("classpath",classpath.clone()),("classpath_separator",(if cfg!(windows){";"}else{":"}).into()),("library_directory",g.join("libraries").to_string_lossy().into()),("auth_xuid","0".into()),("clientid","0".into()),("resolution_width","1280".into()),("resolution_height","720".into()),("quickPlayPath",String::new()),("quickPlaySingleplayer",String::new()),("quickPlayMultiplayer",String::new()),("quickPlayRealms",String::new())];let replace=|s:String|replacements.iter().fold(s,|acc,(k,v)|acc.replace(&format!("${{{k}}}"),v));let mut jvm=args(&m,"jvm");jvm.extend(args(&overlay,"jvm"));if let Some(arg)=logging_arg{jvm.push(arg);}if !jvm.iter().any(|x|x=="${classpath}"){jvm.extend(["-cp".into(),"${classpath}".into()])}if !jvm.iter().any(|x|x.starts_with("-Djava.library.path=")){jvm.push("-Djava.library.path=${natives_directory}".into())}jvm.extend([format!("-Xmx{ram}M"),"-Xms512M".into()]);let mut ga=if let Some(s)=m["minecraftArguments"].as_str(){s.split_whitespace().map(str::to_owned).collect()}else{args(&m,"game")};ga.extend(args(&overlay,"game"));if let Some(s)=overlay["minecraftArguments"].as_str(){ga=s.split_whitespace().map(str::to_owned).collect();}log(app,format!("Starting {version} — Java executable: {}",java.display()));
 // JVM arguments only: avoid Windows command-line length limits without writing authentication tokens.
-if jvm.iter().any(|x|x.contains("${auth_access_token}")||x.contains("${auth_session}")){return Err("Unexpected authentication placeholder in JVM arguments".into())}let jvm_file=inst.join(".rylune-jvm.args");let jvm_text=jvm.into_iter().map(&replace).map(|v|quote_java_arg(&v)).collect::<Vec<_>>().join("\n");fs::write(&jvm_file,jvm_text).map_err(err)?;
-let mut cmd=Command::new(&java);cmd.arg(format!("@{}",jvm_file.display())).arg(main).args(ga.into_iter().map(&replace)).current_dir(&inst).stdout(Stdio::piped()).stderr(Stdio::piped());#[cfg(windows)]{use std::os::windows::process::CommandExt;cmd.creation_flags(0x08000000);}let mut child=cmd.spawn().map_err(|e|{let _=fs::remove_file(&jvm_file);format!("Java could not start: {e}. Configure the correct Java executable in Profiles.")})?;let stderr=child.stderr.take().ok_or("Missing stderr")?;let app2=app.clone();let t=access.to_owned();let reader=std::thread::spawn(move||{for line in BufReader::new(stderr).lines().map_while(Result::ok){log(&app2,if t.len()>8{line.replace(&t,"[REDACTED]")}else{line});}});if let Some(stdout)=child.stdout.take(){for line in BufReader::new(stdout).lines().map_while(Result::ok){log(app,if access.len()>8{line.replace(access,"[REDACTED]")}else{line});}}let status=child.wait().map_err(err)?;let _=reader.join();let _=fs::remove_file(jvm_file);log(app,format!("Game exited: {status}"));if !status.success(){return Err("Minecraft exited unsuccessfully. See Logs.".into())}Ok(())}
+if jvm.iter().any(|x|x.contains("${auth_access_token}")||x.contains("${auth_session}")){return Err("Unexpected authentication placeholder in JVM arguments".into())}let jvm_file=inst.join(".rylune-jvm.args");let jvm_resolved=jvm.into_iter().map(&replace).collect::<Vec<_>>();let game_resolved=ga.into_iter().map(&replace).collect::<Vec<_>>();if let Some(v)=jvm_resolved.iter().chain(game_resolved.iter()).find(|s|s.contains("${")){return Err(format!("Unresolved launch argument: {v}"))}let jvm_text=jvm_resolved.iter().map(|v|quote_java_arg(v)).collect::<Vec<_>>().join("\n");fs::write(&jvm_file,jvm_text).map_err(err)?;
+let mut cmd=Command::new(&java);cmd.arg(format!("@{}",jvm_file.display())).arg(main).args(game_resolved).current_dir(&inst).stdout(Stdio::piped()).stderr(Stdio::piped());#[cfg(windows)]{use std::os::windows::process::CommandExt;cmd.creation_flags(0x08000000);}let mut child=cmd.spawn().map_err(|e|{let _=fs::remove_file(&jvm_file);format!("Java could not start: {e}. Configure the correct Java executable in Profiles.")})?;let _=app.emit("launcher-state","running");log(app,format!("Minecraft process started (PID {})",child.id()));let stderr=child.stderr.take().ok_or("Missing stderr")?;let log_path=inst.join("logs/launcher-latest.log");let disk_log=std::sync::Arc::new(Mutex::new(fs::File::create(&log_path).map_err(err)?));let disk2=disk_log.clone();let app2=app.clone();let t=access.to_owned();let reader=std::thread::spawn(move||{for line in BufReader::new(stderr).lines().map_while(Result::ok){let line=if t.len()>8{line.replace(&t,"[REDACTED]")}else{line};if let Ok(mut f)=disk2.lock(){let _=writeln!(f,"{line}");}log(&app2,&line);}});if let Some(stdout)=child.stdout.take(){for line in BufReader::new(stdout).lines().map_while(Result::ok){let line=if access.len()>8{line.replace(access,"[REDACTED]")}else{line};if let Ok(mut f)=disk_log.lock(){let _=writeln!(f,"{line}");}log(app,&line);}}let status=child.wait().map_err(err)?;let _=reader.join();let _=fs::remove_file(jvm_file);log(app,format!("Game exited: {status}"));if !status.success(){return Err(format!("Minecraft exited with {status}. See Logs or {}",log_path.display()))}Ok(())}
 
+const JAVA_MANIFEST:&str="https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+fn runtime_platform()->R<&'static str>{
+    match (std::env::consts::OS,std::env::consts::ARCH){
+        ("windows","x86_64")=>Ok("windows-x64"),("windows","aarch64")=>Ok("windows-arm64"),
+        ("windows","x86")=>Ok("windows-x86"),("linux","x86_64")=>Ok("linux"),
+        ("macos","x86_64")=>Ok("mac-os"),("macos","aarch64")=>Ok("mac-os-arm64"),
+        _=>Err("Automatic Java installation is unavailable for this platform".into())
+    }
+}
+fn ensure_java(p:&Value,g:&Path,m:&Value,required:u64,c:&Client,report:impl Fn(String))->R<PathBuf>{
+    match select_java(p,required){
+        Ok(java)=>return Ok(java),
+        Err(e) if p["java"].as_str().is_some_and(|v|!v.trim().is_empty())=>return Err(e),
+        Err(_)=>{}
+    }
+    let component=strv(&m["javaVersion"],"component")?;
+    if !safe_id(component){return Err("Invalid Java runtime component".into())}
+    let platform=runtime_platform()?;
+    let home=g.join("runtime").join(component);
+    fs::create_dir_all(&home).map_err(err)?;
+    report(format!("Downloading Java {required}"));
+    let catalog=get_json(c,JAVA_MANIFEST)?;
+    let entries=catalog[platform][component].as_array().ok_or_else(||format!("Java {required} is not available for {platform}"))?;
+    let entry=entries.first().ok_or_else(||format!("No Java runtime for {platform}"))?;
+    let manifest=&entry["manifest"];
+    let cache=g.join("runtime").join(format!("{component}-manifest.json"));
+    download(c,&cache,strv(manifest,"url")?,strv(manifest,"sha1")?,true)?;
+    let metadata=json_file(&cache)?;
+    let entries=metadata["files"].as_object().ok_or("Invalid Java runtime manifest")?;
+    let total=entries.len();
+    for (i,(name,v)) in entries.iter().enumerate(){
+        let path=safe_path(&home,name)?;
+        match v["type"].as_str(){
+            Some("directory")=>fs::create_dir_all(&path).map_err(err)?,
+            Some("file")=>{
+                let d=&v["downloads"]["raw"];
+                download(c,&path,strv(d,"url")?,strv(d,"sha1")?,true)?;
+                #[cfg(unix)]{
+                    use std::os::unix::fs::PermissionsExt;
+                    if v["executable"]==true {fs::set_permissions(&path,fs::Permissions::from_mode(0o755)).map_err(err)?;}
+                }
+            },
+            Some("link")=>{
+                // Windows runtimes contain ordinary files; do not create untrusted links.
+                return Err(format!("Runtime contains a symbolic link ({name}); select an installed Java {required} instead"))
+            },
+            _=>return Err(format!("Unknown Java runtime entry {name}"))
+        }
+        if i%40==0||i+1==total{report(format!("Java {required}: {}/{} files",i+1,total));}
+    }
+    let java=java_exe(&home);
+    if java_major(&java)!=Some(required){return Err(format!("Downloaded Java runtime failed its Java {required} version check"))}
+    report(format!("Java {required} ready"));
+    Ok(java)
+}
 fn quote_java_arg(s:&str)->String{format!("\"{}\"",s.replace('\\',"\\\\").replace('"',"\\\""))}
 fn java_major(path:&Path)->Option<u64>{
     let mut cmd=Command::new(path);cmd.arg("-version");
@@ -78,11 +145,46 @@ fn select_java(p:&Value,required:u64)->R<PathBuf>{
         return if java_major(&path)==Some(required){Ok(path)}else{Err(format!("Configured Java must be Java {required}. Choose the matching executable in Profiles."))}
     }
     let mut candidates=vec![];
+    if let Ok(dir)=profile_dir(p){collect_java(&dir.join("runtime"),5,&mut candidates)}
     if let Some(home)=std::env::var_os("JAVA_HOME"){candidates.push(java_exe(&PathBuf::from(home)))}
     if let Some(base)=std::env::var_os("APPDATA"){collect_java(&PathBuf::from(base).join(".minecraft/runtime"),5,&mut candidates)}
     if let Some(base)=std::env::var_os("ProgramFiles"){let base=PathBuf::from(base);for dir in ["Java","Eclipse Adoptium","Microsoft","Minecraft Launcher/runtime"]{collect_java(&base.join(dir),5,&mut candidates);}}
-    if let Ok(dir)=profile_dir(p){collect_java(&dir.join("runtime"),5,&mut candidates)}
     candidates.push(PathBuf::from("java"));
     candidates.into_iter().find(|c|java_major(c)==Some(required)).ok_or_else(||format!("Java {required} not found. Install a 64-bit Java {required} runtime or select its java.exe in Profiles."))
 }
 #[cfg(test)]mod tests{use super::*;#[test]fn quoting(){assert_eq!(quote_java_arg("a b"),"\"a b\"");assert_eq!(quote_java_arg(r"C:\a b"),r#""C:\\a b""#);}#[test]fn version_range(){assert!(supported_version("1.21.11"));assert!(supported_version("26.3"));assert!(!supported_version("26.4"));assert!(!supported_version("1.8.9"));assert!(!supported_version("26.3-snapshot-1"));}}
+
+#[cfg(test)]
+mod release_checks {
+    use super::*;
+    #[test]
+    #[ignore = "requires official metadata endpoints"]
+    fn official_metadata_and_java_process(){
+        let c=client().unwrap();
+        let manifest=get_json(&c,MANIFEST).unwrap();
+        let catalog=get_json(&c,JAVA_MANIFEST).unwrap();
+        let platform=runtime_platform().unwrap();
+        for id in ["1.21.11","26.1"] {
+            let entry=manifest["versions"].as_array().unwrap().iter().find(|v|v["id"]==id).unwrap();
+            let m=get_json(&c,strv(entry,"url").unwrap()).unwrap();
+            let component=strv(&m["javaVersion"],"component").unwrap();
+            assert!(!catalog[platform][component].as_array().unwrap().is_empty());
+            let loaders=get_json(&c,&format!("{FABRIC_META}/{id}")).unwrap();
+            let loader=loaders.as_array().unwrap().iter().find(|v|v["loader"]["stable"]==true).unwrap();
+            let lv=strv(&loader["loader"],"version").unwrap();
+            let overlay=get_json(&c,&format!("{FABRIC_META}/{id}/{lv}/profile/json")).unwrap();
+            assert_eq!(overlay["inheritsFrom"],id);
+            assert!(overlay["mainClass"].is_string());
+            assert!(!args(&m,"jvm").is_empty());
+            assert!(!args(&m,"game").is_empty());
+        }
+        let folder=std::env::temp_dir().join(format!("Rylune Java test {}",std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let file=folder.join("test.args");
+        fs::write(&file,"-version\n").unwrap();
+        let java=PathBuf::from(std::env::var_os("JAVA_HOME").unwrap()).join("bin").join(if cfg!(windows){"java.exe"}else{"java"});
+        let output=Command::new(java).arg(format!("@{}",file.display())).output().unwrap();
+        assert!(output.status.success());
+        let _=fs::remove_dir_all(folder);
+    }
+}

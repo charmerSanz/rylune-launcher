@@ -4,46 +4,35 @@ on:
   push:
     branches: [main]
     paths:
-      - 'RyluneLauncher-Tauri-v0.6.zip'
       - 'launcher/**'
       - '.github/workflows/rylune-release.yml'
 permissions:
   contents: write
+concurrency:
+  group: rylune-windows-release
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Import launcher source
-        shell: pwsh
-        run: |
-          if (Test-Path 'RyluneLauncher-Tauri-v0.6.zip') {
-            $temp = Join-Path $env:RUNNER_TEMP 'rylune'
-            Expand-Archive 'RyluneLauncher-Tauri-v0.6.zip' $temp -Force
-            New-Item -ItemType Directory -Force launcher | Out-Null
-            Get-ChildItem (Join-Path $temp 'Rylune-Tauri-v0.6') -Force | Copy-Item -Destination launcher -Recurse -Force
-          }
-          if (!(Test-Path 'launcher/package.json')) { throw 'Upload the v0.6 archive first' }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- launcher
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Import Rylune v0.6 source'
-            if ($LASTEXITCODE -ne 0) { throw 'Commit failed' }
-            git push origin HEAD:main
-            if ($LASTEXITCODE -ne 0) { throw 'Push failed' }
-          } elseif ($LASTEXITCODE -ne 0) { throw 'Git diff failed' }
-          exit 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - run: npm install --no-audit --no-fund
         working-directory: launcher
       - run: npm run build
         working-directory: launcher
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+        working-directory: launcher
+      - name: Official metadata and Java process smoke test
+        run: cargo test --manifest-path src-tauri/Cargo.toml official_metadata_and_java_process -- --ignored --nocapture
         working-directory: launcher
       - run: npm run tauri build
         working-directory: launcher
@@ -61,15 +50,16 @@ jobs:
           path: release-files/*.exe
           if-no-files-found: error
       - name: Publish release
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = 'v0.7.0-alpha'
+          $tag = 'v0.8.0-alpha'
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag --clobber release-files/RyluneClient.exe release-files/RyluneClient-Setup.exe
           } else {
-            gh release create $tag --target (git rev-parse HEAD).Trim() --title 'Rylune v0.7 Alpha' --notes 'Unsigned Windows alpha; game launch and authentication not yet verified.' --prerelease release-files/RyluneClient.exe release-files/RyluneClient-Setup.exe
+            gh release create $tag --target (git rev-parse HEAD).Trim() --title 'Rylune Client v0.8' --notes 'Automatic Java installation, download repair, launch diagnostics and simplified UI. Windows alpha, unsigned; graphical gameplay and Microsoft authentication not yet verified.' --prerelease release-files/RyluneClient.exe release-files/RyluneClient-Setup.exe
           }
           if ($LASTEXITCODE -ne 0) { throw 'Release failed' }
