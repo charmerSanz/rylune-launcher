@@ -1,0 +1,41 @@
+name: Publish Rylune v0.9 Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-native-v09.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 45647887830
+          artifact-ids: 15039457964
+          path: release-files
+      - name: Publish compiled binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=$(find release-files -type f -name RyluneClient.exe -print -quit)
+          setup=$(find release-files -type f -name RyluneClient-Setup.exe -print -quit)
+          test -s "$exe" && test -s "$setup"
+          tag=v0.9.0-alpha
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+              gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target c4333d084430833dc0525dbe35724091a81e7a05 --title "Rylune Client v0.9 Native" --notes "Native Rust Windows alpha. Gameplay and sign-in require runtime testing." --prerelease; then
+              if gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "$exe" "$setup"; then
+                gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,assets
+                exit 0
+              fi
+            fi
+            sleep $((attempt * 10))
+          done
+          exit 1
