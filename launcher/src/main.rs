@@ -64,21 +64,21 @@ fn signed_in(state:&Runtime)->Vec<String>{state.tokens.lock().unwrap().keys().cl
 #[derive(Clone)]
 struct AppHandle {
     runtime: Arc<Runtime>,
-    tx: mpsc::Sender<Event>,
+    tx: mpsc::Sender<LauncherEvent>,
     ctx: eframe::egui::Context,
 }
-enum Event {
+enum LauncherEvent {
     Log(String), Progress(u32), State(String), Finished(R<()>,bool),
     Catalog(R<Vec<String>>), Device(Value), Login(R<Value>),
 }
 impl AppHandle {
-    fn send(&self,event:Event){let _=self.tx.send(event);self.ctx.request_repaint();}
+    fn send(&self,event:LauncherEvent){let _=self.tx.send(event);self.ctx.request_repaint();}
     fn emit<T:serde::Serialize>(&self,name:&str,value:T)->R<()>{
         let v=serde_json::to_value(value).map_err(err)?;
         match name {
-            "launcher-log"=>self.send(Event::Log(v.as_str().unwrap_or("").to_owned())),
-            "launcher-progress"=>self.send(Event::Progress(v.as_u64().unwrap_or(0).min(100) as u32)),
-            "launcher-state"=>self.send(Event::State(v.as_str().unwrap_or("").to_owned())),
+            "launcher-log"=>self.send(LauncherEvent::Log(v.as_str().unwrap_or("").to_owned())),
+            "launcher-progress"=>self.send(LauncherEvent::Progress(v.as_u64().unwrap_or(0).min(100) as u32)),
+            "launcher-state"=>self.send(LauncherEvent::State(v.as_str().unwrap_or("").to_owned())),
             _=>{}
         }
         Ok(())

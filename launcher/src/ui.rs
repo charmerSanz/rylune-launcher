@@ -1,5 +1,5 @@
 use super::*;
-use eframe::egui::{self, *};
+use eframe::egui::*;
 use std::{collections::VecDeque, time::Duration};
 const BG:Color32=Color32::from_rgb(10,10,12);
 const PANEL:Color32=Color32::from_rgb(19,19,22);
@@ -13,7 +13,7 @@ fn text(s:impl Into<String>,size:f32,color:Color32)->RichText{RichText::new(s).s
 fn accent(ui:&mut Ui,label:&str,w:f32,h:f32,enabled:bool)->bool{
     ui.add_enabled(enabled,Button::new(text(label,16.0,WHITE).strong()).fill(RED).min_size(vec2(w,h))).clicked()
 }
-fn panel()->Frame{Frame::new().fill(PANEL).stroke(Stroke::new(1.0,LINE)).corner_radius(12).inner_margin(Margin::same(18))}
+fn panel()->Frame{Frame::new().fill(PANEL).stroke(Stroke::new(1.0_f32,LINE)).corner_radius(12).inner_margin(Margin::same(18))}
 fn texture(ctx:&Context,name:&str,bytes:&[u8])->Option<TextureHandle>{
     let i=image::load_from_memory(bytes).ok()?.into_rgba8();
     let sz=[i.width() as usize,i.height() as usize];
@@ -32,7 +32,7 @@ enum Page{Home,Versions,Profiles,Accounts,Settings,Logs}
 impl Page{fn label(self)->&'static str{match self{Self::Home=>"Home",Self::Versions=>"Versions",Self::Profiles=>"Profiles",Self::Accounts=>"Accounts",Self::Settings=>"Settings",Self::Logs=>"Logs"}}}
 struct Draft{id:String,name:String,version:String,ram:u64,java:String}
 pub struct Launcher{
-    cfg:Value, app:AppHandle, rx:mpsc::Receiver<Event>, page:Page,
+    cfg:Value, app:AppHandle, rx:mpsc::Receiver<LauncherEvent>, page:Page,
     busy:bool, running:bool, progress:f32, status:String, error:String,
     logs:VecDeque<String>, versions:Vec<String>, fetching:bool, search:String, installed:Vec<String>,
     offline:String, client_id:String, login:bool, device:Option<Value>, draft:Option<Draft>, confirm_remove:Option<String>,
@@ -47,7 +47,7 @@ impl Launcher{
         style.visuals.widgets.inactive.bg_fill=Color32::from_rgb(28,28,32);
         style.visuals.widgets.hovered.bg_fill=Color32::from_rgb(49,30,35);
         style.visuals.widgets.active.bg_fill=RED;
-        style.visuals.selection.bg_fill=RED;style.visuals.selection.stroke=Stroke::new(1.0,WHITE);
+        style.visuals.selection.bg_fill=RED;style.visuals.selection.stroke=Stroke::new(1.0_f32,WHITE);
         style.spacing.item_spacing=vec2(12.0,12.0);style.spacing.button_padding=vec2(14.0,10.0);
         style.animation_time=0.16;ctx.set_style(style);
         let (tx,rx)=mpsc::channel();
@@ -56,7 +56,7 @@ impl Launcher{
         let mut s=Self{client_id:field(&cfg,"client_id").to_owned(),reduce_motion:cfg["reduce_motion"].as_bool().unwrap_or(false),cfg,app,rx,page:Page::Home,busy:false,running:false,progress:0.0,status:"Ready".into(),error,logs:VecDeque::new(),versions:vec![RYLUNE.into()],fetching:false,search:String::new(),installed:installed_versions().unwrap_or_default(),offline:String::new(),login:false,device:None,draft:None,confirm_remove:None,hero:texture(ctx,"hero",include_bytes!("../public/bg-hero.png")),card:texture(ctx,"card",include_bytes!("../public/bg-card.png")),logo:texture(ctx,"logo",include_bytes!("../public/logo.png"))};
         s.catalog();s
     }
-    fn catalog(&mut self){if self.fetching{return}self.fetching=true;let a=self.app.clone();std::thread::spawn(move||a.send(Event::Catalog(fetch_catalog())));}
+    fn catalog(&mut self){if self.fetching{return}self.fetching=true;let a=self.app.clone();std::thread::spawn(move||a.send(LauncherEvent::Catalog(fetch_catalog())));}
     fn save(&mut self,next:Value)->bool{match save_config(next.clone()){Ok(())=>{self.cfg=next;true},Err(e)=>{self.error=e;false}}}
     fn patch(&mut self,k:&str,v:Value){let mut n=self.cfg.clone();n[k]=v;self.save(n);}
     fn active_profile(&self)->Value{let list=items(&self.cfg,"profiles");list.iter().find(|p|field(p,"id")==field(&self.cfg,"profile")).cloned().or_else(||list.first().cloned()).unwrap_or(Value::Null)}
@@ -76,7 +76,7 @@ impl Launcher{
         self.busy=true;self.running=false;self.progress=0.0;self.error.clear();self.status=if install{"Installing".into()}else{"Preparing Minecraft".into()};
         let a=self.app.clone();std::thread::spawn(move||{
             let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||game::run(&a,&profile,&account,install))).unwrap_or_else(|_|Err("Game worker failed".into()));
-            a.send(Event::Finished(result,install));
+            a.send(LauncherEvent::Finished(result,install));
         });
     }
     fn add_account(&mut self,a:Value){let mut n=self.cfg.clone();let mut accounts=items(&n,"accounts");accounts.retain(|v|v["id"]!=a["id"]);accounts.push(a.clone());n["accounts"]=json!(accounts);n["account"]=a["id"].clone();self.save(n);}
@@ -86,21 +86,21 @@ impl Launcher{
         let a=self.app.clone();let id=self.client_id.trim().to_owned();
         std::thread::spawn(move||{
             let result=(||->R<Value>{
-                let d=auth::start(&a,&id)?;a.send(Event::Device(d.clone()));
+                let d=auth::start(&a,&id)?;a.send(LauncherEvent::Device(d.clone()));
                 let session=field(&d,"session").to_owned();let mut interval=d["interval"].as_u64().unwrap_or(5).max(5);
                 loop{std::thread::sleep(Duration::from_secs(interval));let r=auth::poll(&a,&session)?;if r["pending"]==true{interval=r["interval"].as_u64().unwrap_or(interval).max(5);continue}return Ok(r["account"].clone())}
-            })();a.send(Event::Login(result));
+            })();a.send(LauncherEvent::Login(result));
         });
     }
     fn events(&mut self){
         while let Ok(e)=self.rx.try_recv(){match e{
-            Event::Log(l)=>{if !self.running&&(l.starts_with("Assets ")||l.starts_with("Java ")||l.starts_with("Downloading")||l.starts_with("Installing")||l.starts_with("Checking")||l.starts_with("Preparing")){self.status=l.clone();}if self.logs.len()>=2500{self.logs.pop_front();}self.logs.push_back(l);}
-            Event::Progress(n)=>self.progress=n as f32/100.0,
-            Event::State(s)=>{if s=="running"{self.running=true;self.status="Minecraft is running".into();}},
-            Event::Finished(res,install)=>{self.busy=false;self.running=false;self.installed=installed_versions().unwrap_or_default();match res{Ok(())=>{self.status=if install{"Installed".into()}else{"Game closed".into()};self.progress=1.0},Err(e)=>{self.status="Failed".into();self.error=e.clone();self.logs.push_back(e);self.page=Page::Logs}}}
-            Event::Catalog(res)=>{self.fetching=false;match res{Ok(v)=>self.versions=v,Err(e)=>{self.logs.push_back(format!("Version catalog: {e}"));}}}
-            Event::Device(v)=>self.device=Some(v),
-            Event::Login(res)=>{self.login=false;self.device=None;match res{Ok(a)=>self.add_account(a),Err(e)=>self.error=e}}
+            LauncherEvent::Log(l)=>{if !self.running&&(l.starts_with("Assets ")||l.starts_with("Java ")||l.starts_with("Downloading")||l.starts_with("Installing")||l.starts_with("Checking")||l.starts_with("Preparing")){self.status=l.clone();}if self.logs.len()>=2500{self.logs.pop_front();}self.logs.push_back(l);}
+            LauncherEvent::Progress(n)=>self.progress=n as f32/100.0,
+            LauncherEvent::State(s)=>{if s=="running"{self.running=true;self.status="Minecraft is running".into();}},
+            LauncherEvent::Finished(res,install)=>{self.busy=false;self.running=false;self.installed=installed_versions().unwrap_or_default();match res{Ok(())=>{self.status=if install{"Installed".into()}else{"Game closed".into()};self.progress=1.0},Err(e)=>{self.status="Failed".into();self.error=e.clone();self.logs.push_back(e);self.page=Page::Logs}}}
+            LauncherEvent::Catalog(res)=>{self.fetching=false;match res{Ok(v)=>self.versions=v,Err(e)=>{self.logs.push_back(format!("Version catalog: {e}"));}}}
+            LauncherEvent::Device(v)=>self.device=Some(v),
+            LauncherEvent::Login(res)=>{self.login=false;self.device=None;match res{Ok(a)=>self.add_account(a),Err(e)=>self.error=e}}
         }}
     }
     fn profile_installed(&self,p:&Value)->bool{profile_dir(p).map(|d|d.join(".rylune-installed.json").is_file()&&d.join("versions").join(field(p,"version")).join(format!("{}.jar",field(p,"version"))).is_file()).unwrap_or(false)}
@@ -152,7 +152,7 @@ impl Launcher{
         ui.painter().rect_filled(overlay,12.0,Color32::from_black_alpha(110));
         let p=self.active_profile();
         let inner=Rect::from_min_max(rect.min+vec2(38.0,0.0),rect.max-vec2(32.0,0.0));
-        ui.allocate_ui_at_rect(inner,|ui|{ui.vertical(|ui|{
+        ui.allocate_new_ui(UiBuilder::new().max_rect(inner),|ui|{ui.vertical(|ui|{
             ui.add_space((h*0.25).max(30.0));ui.label(text("FABRIC",13.0,Color32::from_rgb(247,125,139)).strong());
             ui.label(text(format!("{} Fabric",field(&p,"version")),54.0,WHITE).strong());
             ui.label(text("Minecraft: Java Edition",16.0,MUTED));ui.add_space(10.0);
@@ -167,7 +167,7 @@ impl Launcher{
             let a=if self.reduce_motion{if response.hovered(){1.0}else{0.0}}else{ui.ctx().animate_bool(response.id,response.hovered())};
             wallpaper(ui,r,&self.card);ui.painter().rect_filled(r,10.0,Color32::from_black_alpha((155.0-a*35.0) as u8));
             let selected=field(&p,"version")==v;
-            ui.painter().rect_stroke(r,10.0,Stroke::new(if selected{2.0}else{1.0},if selected{RED}else{LINE}),StrokeKind::Inside);
+            ui.painter().rect_stroke(r,10.0,Stroke::new(if selected{2.0_f32}else{1.0_f32},if selected{RED}else{LINE}),StrokeKind::Inside);
             ui.painter().text(r.left_bottom()+vec2(16.0,-36.0),Align2::LEFT_BOTTOM,format!("{v} Fabric"),FontId::proportional(23.0),WHITE);
             ui.painter().text(r.left_bottom()+vec2(16.0,-14.0),Align2::LEFT_BOTTOM,"Minecraft: Java Edition",FontId::proportional(12.0),MUTED);
             if response.clicked()&&!self.busy{self.select_version(&v);}
