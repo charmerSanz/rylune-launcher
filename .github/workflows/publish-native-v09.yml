@@ -16,7 +16,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: 45647887830
-          artifact-ids: 15039457964
+          name: RyluneClient-native-Windows
           path: release-files
       - name: Publish compiled binaries
         env:
