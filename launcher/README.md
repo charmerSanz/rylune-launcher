@@ -1,4 +1,4 @@
-# Rylune Client 0.11 — Native
+# Rylune Client 0.12 — Native
 Native Rust desktop launcher using eframe/egui (OpenGL), Rust download and Minecraft process management, and existing Crimson artwork. No Node, React, Tauri or WebView frontend.
 
 ## Build
@@ -10,3 +10,6 @@ The UI uses background Rust worker threads for downloads and authentication, and
 
 ## Obsidian interface
 Near-black surfaces, rounded texture meshes, raised crimson buttons, animated hover and navigation, and a short startup logo reveal. Reduce animations skips the opening sequence and disables interpolated motion. No new renderer or runtime dependencies; the existing game backend remains unchanged.
+
+## Content
+Discover searches Modrinth for the active Minecraft version and Fabric. Mods, resource packs and shaders install into the selected profile with SHA-512 verification and required dependency resolution. Library scans local files and supports disable/enable, recoverable removal, import and managed updates. Modpacks create separate profiles and pin Fabric Loader; local .mrpack imports are supported. Optional pack files are skipped, unsupported Minecraft versions/loaders and protected paths rejected. Content installs are blocked while a game is running. Downloads use HTTPS and a restricted host list. Only managed files can be updated automatically; optional/incompatible dependency resolution and full pack upgrades are not implemented. Only install trusted mods: JARs execute code inside Minecraft.

@@ -16,32 +16,18 @@ fn text(s:impl Into<String>,size:f32,color:Color32)->RichText{RichText::new(s).s
 // A real egui button supplies focus, disabled state and keyboard activation.
 // Its background is drawn behind the standard label with cached, inexpensive shapes.
 fn accent(ui:&mut Ui,label:&str,w:f32,h:f32,enabled:bool)->bool{
-    let painter=ui.painter().clone();
-    let layer=painter.add(Shape::Noop);
-    let response=ui.add_enabled(enabled,Button::new(text(label,16.0,WHITE).strong())
-        .fill(Color32::TRANSPARENT).stroke(Stroke::NONE).min_size(vec2(w,h)));
-    let hover=ui.ctx().animate_bool(response.id.with("premium_hover"),enabled&&(response.hovered()||response.has_focus()));
-    let press=ui.ctx().animate_bool(response.id.with("premium_press"),enabled&&response.is_pointer_button_down_on());
-    let r=response.rect.shrink(1.0);
-    let radius=(r.height()*0.5).min(28.0);
-    let fill=if enabled{blend(Color32::from_rgb(173,13,35),Color32::from_rgb(240,45,67),hover*0.72)}else{Color32::from_rgb(42,17,22)};
-    let edge=if enabled{blend(Color32::from_rgb(209,40,62),HOT,hover)}else{Color32::from_rgb(72,28,36)};
-    let mut shapes=Vec::with_capacity(9);
-    if enabled{
-        for i in (1..=4).rev(){
-            let d=i as f32*1.5;
-            shapes.push(Shape::rect_filled(r.expand(d).translate(vec2(0.0,2.0)),radius+d,Color32::from_rgba_unmultiplied(208,20,45,((5.0+hover*7.0)*(5-i) as f32) as u8)));
-        }
-        shapes.push(Shape::rect_filled(r.translate(vec2(0.0,3.0*(1.0-press))),radius,Color32::from_rgb(59,5,15)));
-    }
-    shapes.push(Shape::rect_filled(r,radius,fill));
-    shapes.push(Shape::rect_filled(Rect::from_min_max(r.min+vec2(2.0,2.0),pos2(r.right()-2.0,r.center().y+2.0)),radius,if enabled{blend(Color32::from_rgb(201,28,50),HOT,hover*0.35)}else{Color32::from_rgb(51,20,27)}));
-    shapes.push(Shape::rect_stroke(r,radius,Stroke::new(1.0_f32,edge),StrokeKind::Inside));
-    painter.set(layer,Shape::Vec(shapes));
-    response.clicked()
+    let painter=ui.painter().clone();let layer=painter.add(Shape::Noop);
+    let response=ui.add_enabled(enabled,Button::new(text(label,15.0,WHITE).strong()).fill(Color32::TRANSPARENT).stroke(Stroke::NONE).min_size(vec2(w,h)));
+    let hover=ui.ctx().animate_bool(response.id.with("hover"),enabled&&(response.hovered()||response.has_focus()));
+    let press=ui.ctx().animate_bool(response.id.with("press"),enabled&&response.is_pointer_button_down_on());
+    let r=response.rect.shrink(1.0);let radius=12.0;
+    let fill=if enabled{blend(Color32::from_rgb(176,25,45),Color32::from_rgb(218,41,62),hover)}else{Color32::from_rgb(36,24,27)};
+    let mut shapes=vec![Shape::rect_filled(r.translate(vec2(0.0,2.0*(1.0-press))),radius,Color32::from_rgb(57,11,19)),Shape::rect_filled(r,radius,fill)];
+    shapes.push(Shape::rect_stroke(r,radius,Stroke::new(1.0_f32,if enabled{blend(Color32::from_rgb(199,44,63),HOT,hover*0.5)}else{LINE}),StrokeKind::Inside));
+    painter.set(layer,Shape::Vec(shapes));response.clicked()
 }
 fn surface()->Frame{
-    Frame::new().fill(PANEL).stroke(Stroke::new(1.0_f32,LINE)).corner_radius(18).inner_margin(Margin::same(18))
+    Frame::new().fill(PANEL).stroke(Stroke::new(1.0_f32,LINE)).corner_radius(14).inner_margin(Margin::same(18))
 }
 fn blend(a:Color32,b:Color32,t:f32)->Color32{
     let t=t.clamp(0.0,1.0);
@@ -49,13 +35,13 @@ fn blend(a:Color32,b:Color32,t:f32)->Color32{
     Color32::from_rgb(f(a.r(),b.r()),f(a.g(),b.g()),f(a.b(),b.b()))
 }
 fn nav_item(ui:&mut Ui,p:Page,active:bool,reduce:bool)->bool{
-    let (r,res)=ui.allocate_exact_size(vec2(ui.available_width(),42.0),Sense::click());
+    let (r,res)=ui.allocate_exact_size(vec2(ui.available_width(),37.0),Sense::click());
     let hovered=res.hovered();
     let a=if reduce{if hovered{1.0}else{0.0}}else{ui.ctx().animate_bool(res.id.with("hover"),hovered)};
     let selected=if reduce{if active{1.0}else{0.0}}else{ui.ctx().animate_bool(res.id.with("active"),active)};
-    let fill=blend(blend(SIDEBAR,Color32::from_rgb(18,18,21),a),Color32::from_rgb(63,10,20),selected);
-    ui.painter().rect_filled(r,21.0,fill);
-    if selected>0.01{ui.painter().rect_stroke(r,21.0,Stroke::new(1.0_f32,blend(LINE,RED,selected)),StrokeKind::Inside);ui.painter().rect_filled(Rect::from_min_size(r.left_top()+vec2(3.0,8.0),vec2(3.0,26.0*selected)),2.0,HOT);}
+    let fill=blend(blend(SIDEBAR,Color32::from_rgb(18,18,21),a),Color32::from_rgb(27,20,22),selected);
+    ui.painter().rect_filled(r,10.0,fill);
+    if selected>0.01{ui.painter().rect_stroke(r,10.0,Stroke::new(1.0_f32,blend(LINE,Color32::from_rgb(65,34,42),selected)),StrokeKind::Inside);ui.painter().rect_filled(Rect::from_min_size(r.left_top()+vec2(3.0,8.0),vec2(3.0,26.0*selected)),2.0,HOT);}
     let color=blend(MUTED,WHITE,selected.max(a));
     let c=r.left_center()+vec2(21.0,0.0);
     let st=Stroke::new(1.5_f32,color);
@@ -111,7 +97,7 @@ fn startup_overlay(ctx:&Context,logo:&Option<TextureHandle>,elapsed:f32,cover_on
     let enter=1.0-(1.0-(elapsed/0.48).clamp(0.0,1.0)).powi(3);
     let c=r.center()+vec2(0.0,-22.0+(1.0-enter)*15.0);
     let size=72.0+24.0*enter;
-    for i in (1..=6).rev(){p.circle_filled(c,size*0.5+i as f32*8.0,Color32::from_rgba_unmultiplied(180,12,36,(4.0*enter) as u8));}
+    // No permanent glow or particles.
     if let Some(t)=logo{
         p.image(t.id(),Rect::from_center_size(c,vec2(size,size)),Rect::from_min_max(Pos2::ZERO,pos2(1.0,1.0)),Color32::from_white_alpha((255.0*enter) as u8));
     }
@@ -121,8 +107,8 @@ fn startup_overlay(ctx:&Context,logo:&Option<TextureHandle>,elapsed:f32,cover_on
     p.rect_filled(Rect::from_min_size(track.min,vec2(track.width()*(elapsed/0.72).clamp(0.0,1.0),track.height())),2.0,RED);
 }
 #[derive(Clone,Copy,PartialEq,Eq)]
-enum Page{Home,Versions,Profiles,Downloads,Accounts,Settings,Logs}
-impl Page{fn label(self)->&'static str{match self{Self::Home=>"Home",Self::Versions=>"Versions",Self::Profiles=>"Profiles",Self::Downloads=>"Downloads",Self::Accounts=>"Accounts",Self::Settings=>"Settings",Self::Logs=>"Logs"}}}
+enum Page{Home,Versions,Profiles,Discover,Library,Downloads,Accounts,Settings,Logs}
+impl Page{fn label(self)->&'static str{match self{Self::Home=>"Home",Self::Versions=>"Versions",Self::Profiles=>"Profiles",Self::Discover=>"Discover",Self::Library=>"Library",Self::Downloads=>"Downloads",Self::Accounts=>"Accounts",Self::Settings=>"Settings",Self::Logs=>"Logs"}}}
 struct Draft{id:String,name:String,version:String,ram:u64,java:String}
 pub struct Launcher{
     cfg:Value, app:AppHandle, rx:mpsc::Receiver<LauncherEvent>, page:Page,
@@ -131,6 +117,7 @@ pub struct Launcher{
     offline:String, client_id:String, login:bool, device:Option<Value>, draft:Option<Draft>, confirm_remove:Option<String>,
     hero:Option<TextureHandle>, card:Option<TextureHandle>, logo:Option<TextureHandle>, reduce_motion:bool,
     last_page:Page, page_since:Instant, installed_only:bool, log_search:String, install_task:bool, startup:Option<Instant>,
+    content_kind:usize, content_query:String, content_sort:usize, content_offset:u32, content_total:u32, content_results:Vec<Value>, content_key:String, search_seq:u64, search_pending:bool, search_since:Instant, content_error:String, content_busy:bool, content_status:String, local_path:String, library_items:Vec<Value>, library_key:String, remove_content:Option<Value>,
 }
 impl Launcher{
     pub fn new(cc:&eframe::CreationContext<'_>)->Self{
@@ -144,15 +131,15 @@ impl Launcher{
         style.visuals.widgets.inactive.weak_bg_fill=Color32::from_rgb(17,17,19);
         style.visuals.widgets.hovered.weak_bg_fill=Color32::from_rgb(32,23,26);
         style.visuals.widgets.active.weak_bg_fill=Color32::from_rgb(68,17,26);
-        for widget in [&mut style.visuals.widgets.inactive,&mut style.visuals.widgets.hovered,&mut style.visuals.widgets.active,&mut style.visuals.widgets.open]{widget.corner_radius=CornerRadius::same(18);widget.bg_stroke=Stroke::new(1.0_f32,LINE);}
+        for widget in [&mut style.visuals.widgets.inactive,&mut style.visuals.widgets.hovered,&mut style.visuals.widgets.active,&mut style.visuals.widgets.open]{widget.corner_radius=CornerRadius::same(10);widget.bg_stroke=Stroke::new(1.0_f32,LINE);}
         style.visuals.window_corner_radius=CornerRadius::same(20);
         style.visuals.selection.bg_fill=RED;style.visuals.selection.stroke=Stroke::new(1.0_f32,WHITE);
-        style.spacing.item_spacing=vec2(12.0,12.0);style.spacing.button_padding=vec2(17.0,10.0);
+        style.spacing.item_spacing=vec2(10.0,9.0);style.spacing.button_padding=vec2(17.0,10.0);
         style.animation_time=0.23;style.spacing.interact_size=vec2(40.0,34.0);ctx.set_style(style);
         let (tx,rx)=mpsc::channel();
         let app=AppHandle{runtime:Arc::new(Runtime{tokens:Mutex::new(HashMap::new()),devices:Mutex::new(HashMap::new())}),tx,ctx:ctx.clone()};
         let (cfg,error)=match load_config(){Ok(c)=>(c,String::new()),Err(e)=>(json!({"profiles":[{"id":RYLUNE,"name":"Minecraft 1.21.11","version":RYLUNE,"ram":2048,"java":""}],"accounts":[],"profile":RYLUNE,"account":"","client_id":""}),format!("Settings could not be loaded: {e}"))};
-        let mut s=Self{client_id:field(&cfg,"client_id").to_owned(),reduce_motion:cfg["reduce_motion"].as_bool().unwrap_or(false),cfg,app,rx,page:Page::Home,last_page:Page::Home,page_since:Instant::now(),installed_only:false,log_search:String::new(),install_task:false,startup:None,busy:false,running:false,progress:0.0,status:"Ready".into(),error,logs:VecDeque::new(),versions:vec![RYLUNE.into()],fetching:false,search:String::new(),installed:installed_versions().unwrap_or_default(),offline:String::new(),login:false,device:None,draft:None,confirm_remove:None,hero:texture(ctx,"hero",include_bytes!("../public/bg-hero.png")),card:texture(ctx,"card",include_bytes!("../public/bg-card.png")),logo:texture(ctx,"logo",include_bytes!("../public/logo.png"))};
+        let mut s=Self{client_id:field(&cfg,"client_id").to_owned(),reduce_motion:cfg["reduce_motion"].as_bool().unwrap_or(false),cfg,app,rx,page:Page::Home,last_page:Page::Home,page_since:Instant::now(),installed_only:false,log_search:String::new(),install_task:false,startup:None,content_kind:0,content_query:String::new(),content_sort:0,content_offset:0,content_total:0,content_results:vec![],content_key:String::new(),search_seq:0,search_pending:false,search_since:Instant::now(),content_error:String::new(),content_busy:false,content_status:String::new(),local_path:String::new(),library_items:vec![],library_key:String::new(),remove_content:None,busy:false,running:false,progress:0.0,status:"Ready".into(),error,logs:VecDeque::new(),versions:vec![RYLUNE.into()],fetching:false,search:String::new(),installed:installed_versions().unwrap_or_default(),offline:String::new(),login:false,device:None,draft:None,confirm_remove:None,hero:texture(ctx,"hero",include_bytes!("../public/bg-hero.png")),card:texture(ctx,"card",include_bytes!("../public/bg-card.png")),logo:texture(ctx,"logo",include_bytes!("../public/logo.png"))};
         if s.reduce_motion{ctx.style_mut(|style|style.animation_time=0.0);}s.catalog();s
     }
     fn catalog(&mut self){if self.fetching{return}self.fetching=true;let a=self.app.clone();std::thread::spawn(move||a.send(LauncherEvent::Catalog(fetch_catalog())));}
@@ -167,7 +154,7 @@ impl Launcher{
         n["profiles"]=json!(list);n["profile"]=p["id"].clone();if self.save(n){Some(p)}else{None}
     }
     fn run(&mut self,install:bool,version:Option<String>){
-        if self.busy{return}
+        if self.busy||self.content_busy{return}
         let account=self.active_account();
         if !install&&account.is_null(){self.page=Page::Accounts;self.error="Select an account to play.".into();return}
         let profile=if let Some(v)=version{let Some(p)=self.select_version(&v)else{return};p}else{self.active_profile()};
@@ -199,11 +186,13 @@ impl Launcher{
             LauncherEvent::Finished(res,install)=>{self.busy=false;self.running=false;self.installed=installed_versions().unwrap_or_default();match res{Ok(())=>{self.status=if install{"Installed".into()}else{"Game closed".into()};self.progress=1.0},Err(e)=>{self.status="Failed".into();self.error=e.clone();self.logs.push_back(e);self.page=Page::Logs}}}
             LauncherEvent::Catalog(res)=>{self.fetching=false;match res{Ok(v)=>self.versions=v,Err(e)=>{self.logs.push_back(format!("Version catalog: {e}"));}}}
             LauncherEvent::Device(v)=>self.device=Some(v),
-            LauncherEvent::Login(res)=>{self.login=false;self.device=None;match res{Ok(a)=>self.add_account(a),Err(e)=>self.error=e}}
+            LauncherEvent::Login(res)=>{self.login=false;self.device=None;match res{Ok(a)=>self.add_account(a),Err(e)=>self.error=e}},
+            LauncherEvent::ContentSearch(seq,res)=>{if seq==self.search_seq{self.search_pending=false;match res{Ok(v)=>{self.content_results=items(&v,"hits");self.content_total=v["total_hits"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32;self.content_error.clear();},Err(e)=>self.content_error=e}}},
+            LauncherEvent::ContentDone(res)=>{self.content_busy=false;self.busy=false;self.status="Ready".into();self.library_key.clear();match res{Ok(pack)=>{self.content_status="Installed".into();if let Some(p)=pack{let mut n=self.cfg.clone();let mut list=items(&n,"profiles");list.push(p.clone());n["profiles"]=json!(list);n["profile"]=p["id"].clone();if self.save(n){self.page=Page::Library;}else{self.content_error="Pack files installed, but profile settings could not be saved.".into();}}},Err(e)=>{self.content_status.clear();self.content_error=e;}}}
         }}
     }
     fn profile_installed(&self,p:&Value)->bool{profile_dir(p).map(|d|d.join(".rylune-installed.json").is_file()&&d.join("versions").join(field(p,"version")).join(format!("{}.jar",field(p,"version"))).is_file()).unwrap_or(false)}
-    fn play_label(&self)->&'static str{if self.running{"Running"}else if self.busy{if self.install_task{"Installing…"}else{"Starting…"}}else if self.profile_installed(&self.active_profile()){"Play"}else{"Install & play"}}
+    fn play_label(&self)->&'static str{if self.content_busy{"Installing content…"}else if self.running{"Running"}else if self.busy{if self.install_task{"Installing…"}else{"Starting…"}}else if self.profile_installed(&self.active_profile()){"Play"}else{"Install & play"}}
     fn top(&mut self,ctx:&Context){
         TopBottomPanel::top("header").frame(Frame::new().fill(SIDEBAR).inner_margin(Margin::symmetric(24,12))).show(ctx,|ui|{
             ui.horizontal(|ui|{
@@ -220,10 +209,10 @@ impl Launcher{
     fn sidebar(&mut self,ctx:&Context){
         SidePanel::left("sidebar").exact_width(208.0).resizable(false).frame(Frame::new().fill(SIDEBAR).inner_margin(Margin::same(14))).show(ctx,|ui|{
             ui.add_space(12.0);
-            for (label,pages) in [("PLAY",&[Page::Home,Page::Versions,Page::Profiles,Page::Downloads][..]),("MANAGE",&[Page::Accounts,Page::Settings,Page::Logs][..])]{
+            for (label,pages) in [("PLAY",&[Page::Home,Page::Versions,Page::Profiles][..]),("CONTENT",&[Page::Discover,Page::Library,Page::Downloads][..]),("MANAGE",&[Page::Accounts,Page::Settings,Page::Logs][..])]{
                 ui.label(text(label,10.0,MUTED).strong());ui.add_space(2.0);
                 for p in pages{if nav_item(ui,*p,self.page==*p,self.reduce_motion){self.page=*p;}}
-                ui.add_space(18.0);
+                ui.add_space(9.0);
             }
             ui.with_layout(Layout::bottom_up(Align::Min),|ui|{
                 ui.label(text(concat!("v",env!("CARGO_PKG_VERSION")),11.0,MUTED));
@@ -241,7 +230,7 @@ impl Launcher{
                     ui.label(text("ACTIVE PROFILE",10.0,MUTED));
                     let mut select=None;
                     ComboBox::from_id_salt("active_profile").width(205.0).selected_text(field(&p,"name")).show_ui(ui,|ui|{for v in items(&self.cfg,"profiles"){if ui.selectable_label(v["id"]==p["id"],field(&v,"name")).clicked(){select=Some(v["id"].clone())}}});
-                    if let Some(v)=select{if !self.busy{self.patch("profile",v);}}
+                    if let Some(v)=select{if !self.busy&&!self.content_busy{self.patch("profile",v);}}
                     ui.label(text(format!("{}  /  {} MB",field(&p,"version"),p["ram"].as_u64().unwrap_or(2048)),11.0,MUTED));
                 });
                 ui.add_space(12.0);
@@ -292,14 +281,116 @@ impl Launcher{
             let a=if self.reduce_motion{if response.hovered(){1.0}else{0.0}}else{ui.ctx().animate_bool(response.id,response.hovered())};
             let r=r.translate(vec2(0.0,if self.reduce_motion{0.0}else{-3.0*a}));
             let selected=field(&p,"version")==v;
-            if selected||a>0.01{ui.painter().rect_filled(r.expand(3.0),19.0,Color32::from_rgba_unmultiplied(225,25,55,if selected{38}else{(24.0*a) as u8}));}
+            
             wallpaper(ui,r,&self.card,false,a);
-            ui.painter().rect_stroke(r,17.0,Stroke::new(if selected{2.0_f32}else{1.0_f32},if selected{HOT}else{blend(LINE,RED,a*0.65)}),StrokeKind::Inside);
+            ui.painter().rect_stroke(r,17.0,Stroke::new(if selected{2.0_f32}else{1.0_f32},if selected{RED}else{blend(LINE,Color32::from_rgb(85,85,91),a)}),StrokeKind::Inside);
             if selected{let c=r.right_top()+vec2(-19.0,19.0);ui.painter().circle_filled(c,10.0,Color32::from_rgb(66,10,22));ui.painter().circle_stroke(c,10.0,Stroke::new(1.0_f32,HOT));ui.painter().line_segment([c+vec2(-4.0,0.0),c+vec2(-1.0,3.0)],Stroke::new(1.6_f32,WHITE));ui.painter().line_segment([c+vec2(-1.0,3.0),c+vec2(5.0,-4.0)],Stroke::new(1.6_f32,WHITE));}
             ui.painter().text(r.left_bottom()+vec2(16.0,-36.0),Align2::LEFT_BOTTOM,format!("{v} Fabric"),FontId::proportional(23.0),WHITE);
             ui.painter().text(r.left_bottom()+vec2(16.0,-14.0),Align2::LEFT_BOTTOM,"Minecraft: Java Edition",FontId::proportional(12.0),MUTED);
             if response.clicked()&&!self.busy{self.select_version(&v);}
         }});
+    }
+    fn content_action(&mut self,project:String,kind:String,update:bool,local:Option<String>){
+        if self.busy||self.content_busy{return}
+        let p=self.active_profile();self.content_busy=true;self.busy=true;self.progress=0.0;self.status="Installing content".into();self.content_status=if update{"Updating…".into()}else{"Installing…".into()};self.content_error.clear();
+        let app=self.app.clone();std::thread::spawn(move||{
+            let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||if let Some(path)=local{content::import_local(&app,&p,&path,&kind)}else{content::install(&app,&p,&project,&kind,update)})).unwrap_or_else(|_|Err("Content worker failed".into()));
+            app.send(LauncherEvent::ContentDone(result));
+        });
+    }
+    fn refresh_library(&mut self){
+        let p=self.active_profile();
+        match content::library(&p){Ok(v)=>{self.library_items=v;self.library_key=field(&p,"id").to_owned();},Err(e)=>{self.content_error=e;self.library_items.clear();self.library_key=field(&p,"id").to_owned();}}
+    }
+    fn content_banner(&mut self,ui:&mut Ui){
+        let p=self.active_profile();
+        ui.horizontal(|ui|{ui.label(text(format!("{}  /  Fabric",field(&p,"version")),13.0,MUTED));ui.label(text(field(&p,"name"),13.0,WHITE));});
+        if self.content_busy{ui.horizontal(|ui|{ui.spinner();ui.label(text(self.status.clone(),13.0,MUTED));});}
+        else if !self.content_status.is_empty(){ui.label(text(self.content_status.clone(),13.0,GREEN));}
+        if !self.content_error.is_empty(){ui.horizontal(|ui|{ui.label(text(self.content_error.clone(),13.0,Color32::from_rgb(255,142,151)));if ui.button("Dismiss").clicked(){self.content_error.clear();}});}
+    }
+    fn discover(&mut self,ui:&mut Ui){
+        self.content_banner(ui);
+        let p=self.active_profile();let version=field(&p,"version").to_owned();
+        ui.horizontal(|ui|{for (i,(label,_)) in content::TYPES.iter().enumerate(){if ui.selectable_label(self.content_kind==i,*label).clicked(){self.content_kind=i;self.content_offset=0;}}});
+        ui.separator();
+        ui.horizontal(|ui|{
+            let response=ui.add(TextEdit::singleline(&mut self.content_query).hint_text("Search Modrinth").desired_width(270.0));
+            if response.changed(){self.content_offset=0;}
+            ComboBox::from_id_salt("content_sort").selected_text(["Relevance","Downloads","Newest","Updated"][self.content_sort]).show_ui(ui,|ui|{for (i,sort) in ["Relevance","Downloads","Newest","Updated"].iter().enumerate(){if ui.selectable_value(&mut self.content_sort,i,*sort).changed(){self.content_offset=0;}}});
+            if ui.button("Refresh").clicked(){self.content_key.clear();}
+        });
+        let key=format!("{}|{}|{}|{}|{}",self.content_kind,version,self.content_query,self.content_sort,self.content_offset);
+        if key!=self.content_key{
+            self.content_key=key;self.search_seq=self.search_seq.wrapping_add(1);self.search_pending=true;self.search_since=Instant::now();self.content_results.clear();self.content_total=0;self.content_error.clear();
+        }
+        if self.search_pending{
+            let elapsed=self.search_since.elapsed();
+            if elapsed<Duration::from_millis(350){ui.ctx().request_repaint_after(Duration::from_millis(350)-elapsed);}
+            else if elapsed<Duration::from_secs(3600){
+                let seq=self.search_seq;let q=self.content_query.clone();let k=content::TYPES[self.content_kind].1.to_owned();let sort=["relevance","downloads","newest","updated"][self.content_sort];let offset=self.content_offset;let app=self.app.clone();
+                // Mark the debounce as dispatched; result events reset pending.
+                self.search_since=Instant::now().checked_sub(Duration::from_secs(3601)).unwrap_or_else(Instant::now);
+                std::thread::spawn(move||app.send(LauncherEvent::ContentSearch(seq,content::search(&q,&k,&version,sort,offset))));
+            }
+        }
+        ui.horizontal(|ui|{ui.label(text(format!("{} results",self.content_total),12.0,MUTED));if self.search_pending{ui.spinner();}ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(text("Modrinth",12.0,MUTED));});});
+        let kind=content::TYPES[self.content_kind].1.to_owned();
+        for item in self.content_results.clone(){
+            panel().inner_margin(Margin::same(13)).show(ui,|ui|{
+                ui.horizontal(|ui|{
+                    let title=field(&item,"title");let project=field(&item,"project_id").to_owned();
+                    let (icon,_)=ui.allocate_exact_size(vec2(44.0,44.0),Sense::hover());
+                    ui.painter().rect_filled(icon,10.0,Color32::from_rgb(23,23,26));
+                    ui.painter().text(icon.center(),Align2::CENTER_CENTER,title.chars().next().unwrap_or('?').to_uppercase().to_string(),FontId::proportional(22.0),MUTED);
+                    let w=(ui.available_width()-152.0).max(100.0);
+                    ui.allocate_ui_with_layout(vec2(w,0.0),Layout::top_down(Align::Min),|ui|{
+                        ui.label(text(title,17.0,WHITE).strong());
+                        ui.label(text(format!("{}  ·  {} downloads",field(&item,"author"),item["downloads"].as_u64().unwrap_or(0)),11.0,MUTED));
+                        let desc=field(&item,"description");let desc=if desc.chars().count()>145{format!("{}…",desc.chars().take(144).collect::<String>())}else{desc.to_owned()};ui.label(text(desc,12.0,MUTED));
+                    });
+                    ui.vertical(|ui|{
+                        if accent(ui,if kind=="modpack"{"Install pack"}else{"Install"},120.0,37.0,!self.busy&&!project.is_empty()){self.content_action(project.clone(),kind.clone(),false,None);}
+                        if ui.button("Project page").clicked(){if safe_id(&project){let _=open::that(format!("https://modrinth.com/{kind}/{project}"));}}
+                    });
+                });
+            });
+        }
+        if !self.search_pending&&self.content_results.is_empty()&&self.content_error.is_empty(){ui.label(text("No compatible projects found.",14.0,MUTED));}
+        ui.horizontal(|ui|{
+            if ui.add_enabled(!self.search_pending&&self.content_offset>0,Button::new("Previous")).clicked(){self.content_offset=self.content_offset.saturating_sub(20);}
+            ui.label(text(format!("Page {}",self.content_offset/20+1),12.0,MUTED));
+            if ui.add_enabled(!self.search_pending&&self.content_offset.saturating_add(20)<self.content_total,Button::new("Next")).clicked(){self.content_offset=self.content_offset.saturating_add(20);}
+        });
+    }
+    fn library(&mut self,ui:&mut Ui){
+        let p=self.active_profile();let id=field(&p,"id").to_owned();
+        if self.library_key!=id{self.refresh_library();}
+        self.content_banner(ui);
+        ui.horizontal(|ui|{if ui.button("Refresh").clicked(){self.refresh_library();}if ui.button("Open profile folder").clicked(){if let Err(e)=open_folder(Some(id.clone())){self.content_error=e;}}if ui.button("Discover").clicked(){self.page=Page::Discover;}});
+        ui.label(text("Import local file",18.0,WHITE).strong());
+        ui.horizontal(|ui|{
+            ComboBox::from_id_salt("local_content_kind").selected_text(content::TYPES[self.content_kind].0).show_ui(ui,|ui|{for (i,(label,_)) in content::TYPES.iter().enumerate(){ui.selectable_value(&mut self.content_kind,i,*label);}});
+            ui.add(TextEdit::singleline(&mut self.local_path).hint_text("Path to .jar, .zip or .mrpack").desired_width(320.0));
+            if accent(ui,"Import",82.0,34.0,!self.busy&&!self.local_path.trim().is_empty()){self.content_action(String::new(),content::TYPES[self.content_kind].1.to_owned(),false,Some(self.local_path.clone()));}
+        });
+        ui.separator();
+        for (label,kind) in [("Mods","mod"),("Resource packs","resourcepack"),("Shaders","shader")]{
+            let list:Vec<_>=self.library_items.iter().filter(|x|x["kind"]==kind).cloned().collect();
+            ui.label(text(format!("{label}  ({})",list.len()),19.0,WHITE).strong());
+            if list.is_empty(){ui.label(text("No files installed",12.0,MUTED));}
+            for item in list{
+                panel().inner_margin(Margin::same(12)).show(ui,|ui|{ui.horizontal(|ui|{
+                    ui.vertical(|ui|{ui.label(text(field(&item,"title"),15.0,WHITE).strong());ui.label(text(if item["project"].is_string(){"Modrinth"}else{"Local file"},11.0,MUTED));});
+                    ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
+                        if ui.add_enabled(!self.busy,Button::new("Remove")).clicked(){self.remove_content=Some(item.clone());}
+                        if ui.add_enabled(!self.busy&&item["project"].is_string()&&item["enabled"]==true,Button::new("Update")).clicked(){self.content_action(field(&item,"project").to_owned(),kind.to_owned(),true,None);}
+                        let mut enabled=item["enabled"]==true;
+                        if ui.add_enabled(!self.busy,Checkbox::new(&mut enabled,"Enabled")).changed(){match content::change(&p,&item,false){Ok(())=>self.refresh_library(),Err(e)=>self.content_error=e}}
+                    });
+                });});
+            }
+        }
     }
     fn downloads(&mut self,ui:&mut Ui){
         let p=self.active_profile();
@@ -344,6 +435,7 @@ impl Launcher{
                 if ui.add_enabled(!self.busy,Button::new("Select")).clicked(){self.patch("profile",p["id"].clone());}
                 if ui.add_enabled(!self.busy,Button::new("Edit")).clicked(){self.edit(Some(p.clone()));}
                 if ui.button("Open folder").clicked(){if let Err(e)=open_folder(Some(field(&p,"id").to_owned())){self.error=e}}
+                if ui.add_enabled(!self.busy,Button::new("Content")).clicked(){self.patch("profile",p["id"].clone());self.page=Page::Library;}
                 if ui.add_enabled(!self.busy&&profiles.len()>1,Button::new("Remove")).clicked(){self.confirm_remove=Some(field(&p,"id").to_owned());}
             });
         });}
@@ -390,6 +482,7 @@ impl Launcher{
         ScrollArea::vertical().stick_to_bottom(true).show(ui,|ui|{for l in &self.logs{if !self.log_search.is_empty()&&!l.to_lowercase().contains(&self.log_search.to_lowercase()){continue}ui.label(RichText::new(l).monospace().size(12.0).color(if l.to_lowercase().contains("error"){Color32::from_rgb(255,140,145)}else{MUTED}));}});
     }
     fn dialogs(&mut self,ctx:&Context){
+        if let Some(item)=self.remove_content.clone(){let mut close=false;Window::new("Remove content?").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{ui.label(field(&item,"title"));ui.label("The file will be moved to the profile’s removed-files folder.");ui.horizontal(|ui|{if accent(ui,"Remove",90.0,36.0,!self.busy){let p=self.active_profile();match content::change(&p,&item,true){Ok(())=>self.refresh_library(),Err(e)=>self.content_error=e}close=true;}if ui.button("Cancel").clicked(){close=true;}});});if close{self.remove_content=None;}}
         if let Some(mut d)=self.draft.take(){
             let mut close=false;let mut save=false;
             Window::new("Configure profile").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,vec2(0.0,0.0)).show(ctx,|ui|{
@@ -403,7 +496,8 @@ impl Launcher{
             if save{if d.name.trim().is_empty()||!supported_version(&d.version){self.error="Enter a profile name and valid version.".into()}else{
                 let mut n=self.cfg.clone();let mut list=items(&n,"profiles");
                 let id=if d.id.is_empty(){if list.iter().any(|p|field(p,"id")==d.version||field(p,"version")==d.version){uuid::Uuid::new_v4().to_string()}else{d.version.clone()}}else{d.id.clone()};
-                let v=json!({"id":id,"name":d.name.trim(),"version":d.version,"ram":d.ram,"java":d.java.trim()});
+                let mut v=json!({"id":id,"name":d.name.trim(),"version":d.version,"ram":d.ram,"java":d.java.trim()});
+                if let Some(old)=list.iter().find(|p|p["id"]==v["id"]&&p["version"]==v["version"]){for key in ["fabric_loader","modpack"]{if !old[key].is_null(){v[key]=old[key].clone();}}}
                 list.retain(|p|p["id"]!=v["id"]);list.push(v.clone());n["profiles"]=json!(list);n["profile"]=v["id"].clone();close=self.save(n);
             }}
             if !close{self.draft=Some(d);}
@@ -435,7 +529,7 @@ impl eframe::App for Launcher{
             ui.add_space((1.0-reveal)*9.0);
             if !self.error.is_empty(){ui.horizontal(|ui|{ui.label(text(self.error.clone(),13.0,Color32::from_rgb(255,130,145)));if ui.button("Dismiss").clicked(){self.error.clear();}});}
             if self.page!=Page::Home{ui.label(text(self.page.label(),34.0,WHITE).strong());ui.add_space(8.0);}
-            if self.page==Page::Logs{self.logs(ui);}else{ScrollArea::vertical().id_salt(self.page.label()).auto_shrink([false,false]).show(ui,|ui|{match self.page{Page::Home=>self.home(ui),Page::Versions=>self.versions(ui),Page::Profiles=>self.profiles(ui),Page::Downloads=>self.downloads(ui),Page::Accounts=>self.accounts(ui),Page::Settings=>self.settings(ui),Page::Logs=>{}}});}
+            if self.page==Page::Logs{self.logs(ui);}else{ScrollArea::vertical().id_salt(self.page.label()).auto_shrink([false,false]).show(ui,|ui|{match self.page{Page::Home=>self.home(ui),Page::Versions=>self.versions(ui),Page::Profiles=>self.profiles(ui),Page::Discover=>self.discover(ui),Page::Library=>self.library(ui),Page::Downloads=>self.downloads(ui),Page::Accounts=>self.accounts(ui),Page::Settings=>self.settings(ui),Page::Logs=>{}}});}
             if reveal<0.999{ui.painter().rect_filled(ui.max_rect(),0.0,Color32::from_rgba_unmultiplied(BG.r(),BG.g(),BG.b(),((1.0-reveal)*95.0) as u8));}
         });
         self.dialogs(ctx);

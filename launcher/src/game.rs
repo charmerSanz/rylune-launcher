@@ -4,7 +4,7 @@ use sha1::{Sha1,Digest};
 use std::{path::Path,io::{Read,Write,BufRead,BufReader},process::{Command,Stdio},time::Duration};
 pub const MANIFEST:&str="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const FABRIC_META:&str="https://meta.fabricmc.net/v2/versions/loader";
-pub fn client()->R<Client>{Client::builder().user_agent("RyluneLauncher/0.9").timeout(Duration::from_secs(120)).build().map_err(err)}
+pub fn client()->R<Client>{Client::builder().user_agent(concat!("RyluneLauncher/",env!("CARGO_PKG_VERSION"))).timeout(Duration::from_secs(120)).build().map_err(err)}
 pub fn get_json(c:&Client,url:&str)->R<Value>{c.get(url).send().map_err(err)?.error_for_status().map_err(err)?.json().map_err(err)}
 fn strv<'a>(v:&'a Value,k:&str)->R<&'a str>{v[k].as_str().ok_or_else(||format!("Missing metadata field {k}"))}
 fn safe_path(root:&Path,s:&str)->R<PathBuf>{if s.is_empty()||s.contains('\\')||s.contains(':')||s.split('/').any(|x|x.is_empty()||x=="."||x==".."){return Err(format!("Unsafe path: {s}"))}Ok(root.join(s))}
@@ -42,12 +42,14 @@ log(app,format!("Preparing Minecraft {version} with Fabric"));
 let m=metadata(&c,&g,base,allow_downloads)?;
 if m["id"].as_str()!=Some(base){return Err("Minecraft metadata version mismatch".into())}
 let cache=g.join("fabric-profile.json");
-if json_file(&cache).ok().is_none_or(|v|v["inheritsFrom"].as_str()!=Some(base)||v["mainClass"].as_str().is_none()){
+let pinned=p["fabric_loader"].as_str().filter(|s|!s.is_empty());
+if pinned.is_some_and(|s|!safe_id(s)){return Err("Invalid pinned Fabric Loader".into())}
+if json_file(&cache).ok().is_none_or(|v|v["inheritsFrom"].as_str()!=Some(base)||v["mainClass"].as_str().is_none()||pinned.is_some_and(|lv|v["id"].as_str()!=Some(format!("fabric-loader-{lv}-{base}").as_str()))){
     if !allow_downloads{return Err("Connect to the internet to install this Fabric profile".into())}
-    let loaders=get_json(&c,&format!("{FABRIC_META}/{base}"))?;
+    let lv=if let Some(lv)=pinned{lv.to_owned()}else{let loaders=get_json(&c,&format!("{FABRIC_META}/{base}"))?;
     let loader=loaders.as_array().into_iter().flatten().find(|v|v["loader"]["stable"]==true).ok_or("No stable Fabric Loader for this release")?;
-    let lv=strv(&loader["loader"],"version")?;
-    if !safe_id(lv){return Err("Invalid Fabric Loader version".into())}
+    strv(&loader["loader"],"version")?.to_owned()};
+    if !safe_id(&lv){return Err("Invalid Fabric Loader version".into())}
     log(app,format!("Installing Fabric Loader {lv}"));
     let profile=get_json(&c,&format!("{FABRIC_META}/{base}/{lv}/profile/json"))?;
     if profile["inheritsFrom"].as_str()!=Some(base)||profile["mainClass"].as_str().is_none(){return Err("Invalid Fabric launch profile".into())}

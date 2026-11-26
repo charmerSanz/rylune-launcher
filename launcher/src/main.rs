@@ -2,6 +2,7 @@
 mod game;
 mod auth;
 mod ui;
+mod content;
 use serde_json::{Value,json};
 use std::{path::PathBuf,fs,sync::{Mutex},collections::HashMap};
 use std::sync::{Arc,mpsc};
@@ -70,6 +71,7 @@ struct AppHandle {
 enum LauncherEvent {
     Log(String), Progress(u32), State(String), Finished(R<()>,bool),
     Catalog(R<Vec<String>>), Device(Value), Login(R<Value>),
+    ContentSearch(u64,R<Value>), ContentDone(R<Option<Value>>),
 }
 impl AppHandle {
     fn send(&self,event:LauncherEvent){let _=self.tx.send(event);self.ctx.request_repaint();}
