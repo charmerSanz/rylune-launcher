@@ -1,4 +1,4 @@
-# Rylune Client 0.9 — Native
+# Rylune Client 0.11 — Native
 Native Rust desktop launcher using eframe/egui (OpenGL), Rust download and Minecraft process management, and existing Crimson artwork. No Node, React, Tauri or WebView frontend.
 
 ## Build
@@ -7,3 +7,6 @@ Install Rust stable MSVC and Visual Studio C++ build tools with Windows SDK. Fro
 Existing %APPDATA%/Rylune/settings.json and profiles directories are reused. Local accounts are for Minecraft owners' local play; Microsoft sign-in requires an approved application ID. Offline installations use official public endpoints and require internet for missing files. Minecraft's official catalog supplies available versions in the 1.21.11–26.3 range. Every profile retains its own files.
 
 The UI uses background Rust worker threads for downloads and authentication, and repaint notifications on events. It is not an FPS mod. First-run downloads are still sequential; gameplay and Microsoft sign-in need actual Windows runtime testing. Automated tests include official metadata and Java-process checks. The installer is unsigned and does not remove profile data.
+
+## Obsidian interface
+Near-black surfaces, rounded texture meshes, raised crimson buttons, animated hover and navigation, and a short startup logo reveal. Reduce animations skips the opening sequence and disables interpolated motion. No new renderer or runtime dependencies; the existing game backend remains unchanged.
