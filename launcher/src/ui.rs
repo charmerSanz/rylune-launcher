@@ -117,7 +117,7 @@ pub struct Launcher{
     offline:String, client_id:String, login:bool, device:Option<Value>, draft:Option<Draft>, confirm_remove:Option<String>,
     hero:Option<TextureHandle>, card:Option<TextureHandle>, logo:Option<TextureHandle>, reduce_motion:bool,
     last_page:Page, page_since:Instant, installed_only:bool, log_search:String, install_task:bool, startup:Option<Instant>,
-    content_kind:usize, content_query:String, content_sort:usize, content_offset:u32, content_total:u32, content_results:Vec<Value>, content_key:String, search_seq:u64, search_pending:bool, search_since:Instant, content_error:String, content_busy:bool, content_status:String, local_path:String, library_items:Vec<Value>, library_key:String, remove_content:Option<Value>,
+    content_kind:usize, content_query:String, content_sort:usize, content_offset:u32, content_total:u32, content_results:Vec<Value>, content_key:String, search_seq:u64, search_pending:bool, search_dispatched:bool, search_since:Instant, content_error:String, content_busy:bool, content_status:String, local_path:String, library_items:Vec<Value>, library_key:String, remove_content:Option<(Value,Value)>,
 }
 impl Launcher{
     pub fn new(cc:&eframe::CreationContext<'_>)->Self{
@@ -139,7 +139,7 @@ impl Launcher{
         let (tx,rx)=mpsc::channel();
         let app=AppHandle{runtime:Arc::new(Runtime{tokens:Mutex::new(HashMap::new()),devices:Mutex::new(HashMap::new())}),tx,ctx:ctx.clone()};
         let (cfg,error)=match load_config(){Ok(c)=>(c,String::new()),Err(e)=>(json!({"profiles":[{"id":RYLUNE,"name":"Minecraft 1.21.11","version":RYLUNE,"ram":2048,"java":""}],"accounts":[],"profile":RYLUNE,"account":"","client_id":""}),format!("Settings could not be loaded: {e}"))};
-        let mut s=Self{client_id:field(&cfg,"client_id").to_owned(),reduce_motion:cfg["reduce_motion"].as_bool().unwrap_or(false),cfg,app,rx,page:Page::Home,last_page:Page::Home,page_since:Instant::now(),installed_only:false,log_search:String::new(),install_task:false,startup:None,content_kind:0,content_query:String::new(),content_sort:0,content_offset:0,content_total:0,content_results:vec![],content_key:String::new(),search_seq:0,search_pending:false,search_since:Instant::now(),content_error:String::new(),content_busy:false,content_status:String::new(),local_path:String::new(),library_items:vec![],library_key:String::new(),remove_content:None,busy:false,running:false,progress:0.0,status:"Ready".into(),error,logs:VecDeque::new(),versions:vec![RYLUNE.into()],fetching:false,search:String::new(),installed:installed_versions().unwrap_or_default(),offline:String::new(),login:false,device:None,draft:None,confirm_remove:None,hero:texture(ctx,"hero",include_bytes!("../public/bg-hero.png")),card:texture(ctx,"card",include_bytes!("../public/bg-card.png")),logo:texture(ctx,"logo",include_bytes!("../public/logo.png"))};
+        let mut s=Self{client_id:field(&cfg,"client_id").to_owned(),reduce_motion:cfg["reduce_motion"].as_bool().unwrap_or(false),cfg,app,rx,page:Page::Home,last_page:Page::Home,page_since:Instant::now(),installed_only:false,log_search:String::new(),install_task:false,startup:None,content_kind:0,content_query:String::new(),content_sort:0,content_offset:0,content_total:0,content_results:vec![],content_key:String::new(),search_seq:0,search_pending:false,search_dispatched:false,search_since:Instant::now(),content_error:String::new(),content_busy:false,content_status:String::new(),local_path:String::new(),library_items:vec![],library_key:String::new(),remove_content:None,busy:false,running:false,progress:0.0,status:"Ready".into(),error,logs:VecDeque::new(),versions:vec![RYLUNE.into()],fetching:false,search:String::new(),installed:installed_versions().unwrap_or_default(),offline:String::new(),login:false,device:None,draft:None,confirm_remove:None,hero:texture(ctx,"hero",include_bytes!("../public/bg-hero.png")),card:texture(ctx,"card",include_bytes!("../public/bg-card.png")),logo:texture(ctx,"logo",include_bytes!("../public/logo.png"))};
         if s.reduce_motion{ctx.style_mut(|style|style.animation_time=0.0);}s.catalog();s
     }
     fn catalog(&mut self){if self.fetching{return}self.fetching=true;let a=self.app.clone();std::thread::spawn(move||a.send(LauncherEvent::Catalog(fetch_catalog())));}
@@ -322,15 +322,15 @@ impl Launcher{
         });
         let key=format!("{}|{}|{}|{}|{}",self.content_kind,version,self.content_query,self.content_sort,self.content_offset);
         if key!=self.content_key{
-            self.content_key=key;self.search_seq=self.search_seq.wrapping_add(1);self.search_pending=true;self.search_since=Instant::now();self.content_results.clear();self.content_total=0;self.content_error.clear();
+            self.content_key=key;self.search_seq=self.search_seq.wrapping_add(1);self.search_pending=true;self.search_dispatched=false;self.search_since=Instant::now();self.content_results.clear();self.content_total=0;self.content_error.clear();
         }
-        if self.search_pending{
+        if self.search_pending&&!self.search_dispatched{
             let elapsed=self.search_since.elapsed();
             if elapsed<Duration::from_millis(350){ui.ctx().request_repaint_after(Duration::from_millis(350)-elapsed);}
-            else if elapsed<Duration::from_secs(3600){
+            else{
                 let seq=self.search_seq;let q=self.content_query.clone();let k=content::TYPES[self.content_kind].1.to_owned();let sort=["relevance","downloads","newest","updated"][self.content_sort];let offset=self.content_offset;let app=self.app.clone();
                 // Mark the debounce as dispatched; result events reset pending.
-                self.search_since=Instant::now().checked_sub(Duration::from_secs(3601)).unwrap_or_else(Instant::now);
+                self.search_dispatched=true;
                 std::thread::spawn(move||app.send(LauncherEvent::ContentSearch(seq,content::search(&q,&k,&version,sort,offset))));
             }
         }
@@ -383,7 +383,7 @@ impl Launcher{
                 panel().inner_margin(Margin::same(12)).show(ui,|ui|{ui.horizontal(|ui|{
                     ui.vertical(|ui|{ui.label(text(field(&item,"title"),15.0,WHITE).strong());ui.label(text(if item["project"].is_string(){"Modrinth"}else{"Local file"},11.0,MUTED));});
                     ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
-                        if ui.add_enabled(!self.busy,Button::new("Remove")).clicked(){self.remove_content=Some(item.clone());}
+                        if ui.add_enabled(!self.busy,Button::new("Remove")).clicked(){self.remove_content=Some((p.clone(),item.clone()));}
                         if ui.add_enabled(!self.busy&&item["project"].is_string()&&item["enabled"]==true,Button::new("Update")).clicked(){self.content_action(field(&item,"project").to_owned(),kind.to_owned(),true,None);}
                         let mut enabled=item["enabled"]==true;
                         if ui.add_enabled(!self.busy,Checkbox::new(&mut enabled,"Enabled")).changed(){match content::change(&p,&item,false){Ok(())=>self.refresh_library(),Err(e)=>self.content_error=e}}
@@ -482,7 +482,7 @@ impl Launcher{
         ScrollArea::vertical().stick_to_bottom(true).show(ui,|ui|{for l in &self.logs{if !self.log_search.is_empty()&&!l.to_lowercase().contains(&self.log_search.to_lowercase()){continue}ui.label(RichText::new(l).monospace().size(12.0).color(if l.to_lowercase().contains("error"){Color32::from_rgb(255,140,145)}else{MUTED}));}});
     }
     fn dialogs(&mut self,ctx:&Context){
-        if let Some(item)=self.remove_content.clone(){let mut close=false;Window::new("Remove content?").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{ui.label(field(&item,"title"));ui.label("The file will be moved to the profile’s removed-files folder.");ui.horizontal(|ui|{if accent(ui,"Remove",90.0,36.0,!self.busy){let p=self.active_profile();match content::change(&p,&item,true){Ok(())=>self.refresh_library(),Err(e)=>self.content_error=e}close=true;}if ui.button("Cancel").clicked(){close=true;}});});if close{self.remove_content=None;}}
+        if let Some((profile,item))=self.remove_content.clone(){let mut close=false;Window::new("Remove content?").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{ui.label(field(&item,"title"));ui.label("The file will be moved to the profile’s removed-files folder.");ui.horizontal(|ui|{if accent(ui,"Remove",90.0,36.0,!self.busy){match content::change(&profile,&item,true){Ok(())=>self.refresh_library(),Err(e)=>self.content_error=e}close=true;}if ui.button("Cancel").clicked(){close=true;}});});if close{self.remove_content=None;}}
         if let Some(mut d)=self.draft.take(){
             let mut close=false;let mut save=false;
             Window::new("Configure profile").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,vec2(0.0,0.0)).show(ctx,|ui|{

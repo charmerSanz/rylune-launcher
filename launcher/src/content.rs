@@ -9,7 +9,9 @@ const DIRS:[&str;3]=["mods","resourcepacks","shaderpacks"];
 pub const TYPES:[(&str,&str);4]=[("Mods","mod"),("Modpacks","modpack"),("Resource packs","resourcepack"),("Shaders","shader")];
 fn client()->R<Client>{
     Client::builder().user_agent(concat!("charmerSanz/Rylune-Launcher/",env!("CARGO_PKG_VERSION")," (https://github.com/charmerSanz/rylune-launcher)"))
-        .timeout(Duration::from_secs(120)).redirect(reqwest::redirect::Policy::limited(5)).build().map_err(err)
+        .timeout(Duration::from_secs(120)).redirect(reqwest::redirect::Policy::custom(|attempt|{
+            if attempt.previous().len()>=5||!trusted_host(attempt.url()){attempt.error("Untrusted or excessive redirect")}else{attempt.follow()}
+        })).build().map_err(err)
 }
 fn strv<'a>(v:&'a Value,k:&str)->R<&'a str>{v[k].as_str().ok_or_else(||format!("Missing Modrinth field: {k}"))}
 fn get(c:&Client,url:&str)->R<Value>{c.get(url).send().map_err(err)?.error_for_status().map_err(err)?.json().map_err(err)}
@@ -67,12 +69,13 @@ fn sha(p:&Path)->R<String>{
     loop{let n=f.read(&mut buf).map_err(err)?;if n==0{break}h.update(&buf[..n]);}
     Ok(format!("{:x}",h.finalize()))
 }
+fn trusted_host(u:&reqwest::Url)->bool{u.scheme()=="https"&&u.username().is_empty()&&u.password().is_none()&&matches!(u.host_str(),Some("cdn.modrinth.com"|"github.com"|"raw.githubusercontent.com"|"objects.githubusercontent.com"|"release-assets.githubusercontent.com"|"gitlab.com"|"api.modrinth.com"))}
 fn download(c:&Client,url:&str,hash:&str,size:Option<u64>,out:&Path)->R<()>{
     if hash.len()!=128||!hash.chars().all(|c|c.is_ascii_hexdigit()){return Err("Missing or invalid SHA-512 checksum".into())}
     let u=reqwest::Url::parse(url).map_err(err)?;
     if u.scheme()!="https"||!u.username().is_empty()||u.password().is_some(){return Err("Only public HTTPS content URLs are supported".into())}
     // Limit source hosts to trusted distribution domains; validate redirected destination too.
-    let allowed=|u:&reqwest::Url|u.scheme()=="https"&&matches!(u.host_str(),Some("cdn.modrinth.com"|"github.com"|"raw.githubusercontent.com"|"objects.githubusercontent.com"|"release-assets.githubusercontent.com"|"gitlab.com"));
+    let allowed=trusted_host;
     if !allowed(&u){return Err(format!("Unsupported download host: {}",u.host_str().unwrap_or("?")))}
     if size.is_some_and(|n|n>LIMIT){return Err("File exceeds 1 GiB download limit".into())}
     fs::create_dir_all(out.parent().ok_or("Invalid download path")?).map_err(err)?;
@@ -161,6 +164,15 @@ pub fn install(app:&AppHandle,p:&Value,project:&str,kind:&str,update:bool)->R<Op
     let mut reg=registry(&dir)?;
     let mut resolver=Resolver{c:&c,mc,plan:vec![],chosen:HashMap::new(),visiting:HashSet::new()};
     resolver.visit(project,None,Some(kind),0)?;
+    for item in &resolver.plan{
+        for dep in item["dependencies"].as_array().into_iter().flatten(){
+            if dep["dependency_type"]!="incompatible"{continue}
+            let pid=dep["project_id"].as_str();let vid=dep["version_id"].as_str();
+            if (pid.is_some()||vid.is_some())&&reg.iter().chain(resolver.plan.iter()).any(|x|pid.is_none_or(|p|x["project"].as_str()==Some(p))&&vid.is_none_or(|v|x["version"].as_str()==Some(v))){
+                return Err(format!("{} declares a conflict with installed or selected content",item["title"].as_str().unwrap_or("Project")))
+            }
+        }
+    }
     let stage=stage(&dir)?;
     let mut replacements:Vec<(PathBuf,PathBuf,Value,Option<PathBuf>)>=Vec::new();
     let mut seen=HashSet::new();
@@ -178,12 +190,13 @@ pub fn install(app:&AppHandle,p:&Value,project:&str,kind:&str,update:bool)->R<Op
             if e["version"]==item["version"]&&original.is_file()&&sha(&original)?.eq_ignore_ascii_case(hash){continue}
             if pid!=project||!update{return Err(format!("Existing version of {} conflicts; update or remove it in Library first",e["title"].as_str().unwrap_or(pid)))}
             // Never remove a locally modified managed file.
-            if original.exists(){if !original.is_file()||sha(&original)?!=strv(&e,"sha512")?{return Err("Existing managed file was modified; remove it manually before updating".into())}old=Some(original);}
+            if original.exists(){if fs::symlink_metadata(&original).is_ok_and(|m|m.file_type().is_symlink())||!original.is_file()||sha(&original)?!=strv(&e,"sha512")?{return Err("Existing managed file was modified; remove it manually before updating".into())}old=Some(original);}
         }
         let dest=content_path(&dir,k,name)?;
         let disabled=dest.with_file_name(format!("{name}.disabled"));
         if disabled.exists(){return Err(format!("Disabled file already exists: {name}"))}
         if !seen.insert(dest.to_string_lossy().to_ascii_lowercase()){return Err("Duplicate download filename in dependency plan".into())}
+        if fs::symlink_metadata(&dest).is_ok_and(|m|m.file_type().is_symlink()){return Err("Refusing to replace a symbolic link".into())}
         if dest.exists()&&old.as_ref()!=Some(&dest){
             if dest.is_file()&&sha(&dest)?.eq_ignore_ascii_case(hash){reg.retain(|x|x["project"].as_str()!=Some(pid));reg.push(json!({"project":pid,"version":item["version"],"kind":k,"name":name,"title":item["title"],"sha512":hash}));continue}
             return Err(format!("File already exists: {name}. Remove or rename it in Library first."))
