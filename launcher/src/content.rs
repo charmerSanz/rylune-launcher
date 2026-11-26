@@ -45,7 +45,7 @@ fn version(c:&Client,project:&str,kind:&str,mc:&str,pinned:Option<&str>)->R<Valu
 }
 fn primary(v:&Value)->R<&Value>{
     let files=v["files"].as_array().ok_or("Missing downloadable files")?;
-    files.iter().find(|f|f["primary"]==true).or_else(||if files.len()==1{files.first()}else{None}).ok_or("No unambiguous primary download")
+    files.iter().find(|f|f["primary"]==true).or_else(||if files.len()==1{files.first()}else{None}).ok_or_else(|| "No unambiguous primary download".to_owned())
 }
 fn filename(name:&str)->R<&str>{
     let stem=name.split('.').next().unwrap_or("").to_ascii_uppercase();
@@ -322,4 +322,14 @@ mod tests{
     use super::*;
     #[test]fn pack_paths(){for s in ["../mods/a.jar","mods/../a.jar","mods/C:/a.jar","mods/a.jar:evil","mods/CON.jar","runtime/bin/java.exe","settings.json","mods/a. "]{assert!(allowed_path(s).is_err(),"{s}");}assert!(allowed_path("mods/sodium.jar").is_ok());assert!(allowed_path("config/sodium-options.json").is_ok());}
     #[test]fn extensions(){assert!(ext_ok("mod","a.jar"));assert!(!ext_ok("mod","a.exe"));assert!(ext_ok("resourcepack","a.zip"));}
+
+    #[test]
+    fn primary_download_selection(){
+        let single=json!({"files":[{"filename":"only.jar"}]});
+        assert_eq!(primary(&single).unwrap()["filename"],"only.jar");
+        let multiple=json!({"files":[{"filename":"extra.jar"},{"filename":"main.jar","primary":true}]});
+        assert_eq!(primary(&multiple).unwrap()["filename"],"main.jar");
+        let ambiguous=json!({"files":[{"filename":"a.jar"},{"filename":"b.jar"}]});
+        assert_eq!(primary(&ambiguous).unwrap_err(),"No unambiguous primary download");
+    }
 }
